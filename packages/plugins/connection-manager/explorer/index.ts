@@ -235,6 +235,9 @@ export class ConnectionExplorer implements TreeDataProvider<SidebarTreeItem>, Tr
 export class MessagesProvider implements TreeDataProvider<TreeItem> {
   private items: TreeItem[] = [];
   private active: boolean = false;
+  // Maximum number of message TreeItems kept in memory across all runs.
+  // Oldest items are dropped when the list exceeds this value.
+  private static readonly MAX_ITEMS = 200;
   private _onDidChangeTreeData: EventEmitter<TreeItem> = new EventEmitter();
   public readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   getTreeItem(element: TreeItem): TreeItem | Thenable<TreeItem> {
@@ -247,14 +250,31 @@ export class MessagesProvider implements TreeDataProvider<TreeItem> {
 
   getParent = (_: TreeItem) => {
     return null;
-  }
+  };
+
+  clearMessages = () => {
+    this.items = [];
+    this._onDidChangeTreeData.fire(null);
+  };
 
   addMessages = (messages: NSDatabase.IResult['messages'] = []) => {
     if (!this.active && messages.length > 0) {
       this.active = true;
       commands.executeCommand('setContext', `${EXT_NAMESPACE}.consoleMessages.active`, true);
     }
-    this.items = messages.map(m => {
+
+    if (messages.length === 0) return;
+
+    // Prepend a visual separator so the user can tell where one run ends and
+    // the next begins when multiple runs are visible in the panel.
+    const runDate = new Date();
+    const separator = new TreeItem(
+      `─────────────────── ${runDate.toLocaleTimeString()} ───────────────────`,
+      TreeItemCollapsibleState.None
+    );
+    separator.tooltip = runDate.toString();
+
+    const newItems = messages.map(m => {
       let item: TreeItem;
       if (typeof m === 'string') {
         item = new TreeItem(m, TreeItemCollapsibleState.None);
@@ -274,8 +294,11 @@ export class MessagesProvider implements TreeDataProvider<TreeItem> {
       };
       return item;
     });
+
+    // Newest run at the top; trim to MAX_ITEMS to cap memory usage.
+    this.items = [separator, ...newItems, ...this.items].slice(0, MessagesProvider.MAX_ITEMS);
     this._onDidChangeTreeData.fire(null);
-  }
+  };
 
 }
 
