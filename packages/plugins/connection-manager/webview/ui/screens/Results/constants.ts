@@ -13,14 +13,13 @@ export const availableFilterOperations = [
 
 export enum MenuActions {
   FilterByValueOption = 'Filter By {contextAction}',
-  ReRunQueryOption = 'Re-Run This Query',
-  ClearSelection = 'Clear Selection',
   ClearFiltersOption = 'Clear All Filters',
+  ClearSelection = 'Clear Selection',
   CopyCellOption = 'Copy {contextAction}',
   CopyRowOption = 'Copy Selected JSON Row(s)',
+  CopySelectedCSV = 'Copy Selected as CSV',
+  CopySelectedJSON = 'Copy Selected as JSON',
   SaveCSVOption = 'Save Results as CSV',
   SaveJSONOption = 'Save Results as JSON',
-  OpenEditorWithValueOption = 'Open Editor With {contextAction}',
-  OpenEditorWithRowOption = 'Open Editor With Selected JSON Row(s)',
   Divider = 'sep',
 }

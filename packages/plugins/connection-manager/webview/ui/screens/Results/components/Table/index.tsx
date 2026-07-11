@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Paper from '@material-ui/core/Paper';
 import {
   SortingState,
@@ -41,10 +41,21 @@ import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
 import useContextAction from '../../hooks/useContextAction';
 
+/** Convert an array of row objects to a CSV string. */
+function rowsToCSV(rows: any[]): string {
+  if (!rows || rows.length === 0) return '';
+  const cols = Object.keys(rows[0]);
+  const escape = (v: any) => {
+    const s = v === null || v === undefined ? '' : String(typeof v === 'object' ? JSON.stringify(v) : v);
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return [cols.join(','), ...rows.map(r => cols.map(c => escape(r[c])).join(','))].join('\n');
+}
+
 const Table = ({ setContextState }) => {
   const [filters, setFilters] = useState<(Filter & { regex?: RegExp })[]>([]);
   const [selection, setSelection] = useState<Array<number | string>>([]);
-  const { exportResults, reRunQuery } = useContextAction();
+  const { exportResults } = useContextAction();
   const { result } = useCurrentResult();
   const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId } = result || {};
 
@@ -74,6 +85,27 @@ const Table = ({ setContextState }) => {
     setFilters(newFilters);
   }, [setFilters]);
 
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+  // Esc   → clear selection
+  // Ctrl+A → select all rows
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ignore when focus is inside an input/textarea (e.g. filter row).
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSelection([]);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        setSelection(rows.map((_, i) => i));
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [rows]);
+
   const onMenuOpen = useCallback(({ rowindex }) => {
     rowindex = Number(rowindex);
     if (isNaN(rowindex) || rowindex < 0) return;
@@ -94,130 +126,109 @@ const Table = ({ setContextState }) => {
   const columnWidths = Object.entries({ ...defaultColumnWidths, ...columnWidthOverrides })
     .map(([columnName, width]) => ({ columnName, width }));
 
-  const menuActions = {
-    [MenuActions.ReRunQueryOption]: reRunQuery,
-    [MenuActions.SaveCSVOption]: exportResults,
-    [MenuActions.SaveJSONOption]: exportResults,
-  }
-
   const onMenuSelect = useCallback((choice: string, { rowindex, colname }) => {
     rowindex = Number(rowindex);
-    let selectedRows: any[] | any = selection.map(index => rows[index]);
-    selectedRows = selectedRows.length === 1 ? selectedRows[0] : selectedRows;
+    const newSelection = selection.includes(rowindex) ? selection : (rowindex >= 0 ? [rowindex] : []);
+    const selectedRows = newSelection.map(index => rows[index as number]);
     const cellValue = (rows[rowindex] ?? {})[colname];
+
     switch (choice) {
       case MenuActions.FilterByValueOption:
         const newFilters = [...filters];
         const filterIndex = newFilters.findIndex(filter => filter.columnName === colname);
         if (filterIndex !== -1) newFilters.splice(filterIndex, 1);
-        newFilters.push({
-          columnName: colname,
-          operation: 'equal',
-          value: cellValue,
-        });
+        newFilters.push({ columnName: colname, operation: 'equal', value: cellValue });
         setFilters(newFilters);
         return setSelection([]);
+
       case MenuActions.CopyCellOption:
+        return clipboardInsert(cellValue);
+
       case MenuActions.CopyRowOption:
-        return clipboardInsert(choice === MenuActions.CopyCellOption ? cellValue : selectedRows);
+        return clipboardInsert(selectedRows.length === 1 ? selectedRows[0] : selectedRows);
+
+      case MenuActions.CopySelectedCSV:
+        return clipboardInsert(rowsToCSV(selectedRows));
+
+      case MenuActions.CopySelectedJSON:
+        return clipboardInsert(JSON.stringify(
+          selectedRows.length === 1 ? selectedRows[0] : selectedRows,
+          null, 2
+        ));
+
       case MenuActions.ClearFiltersOption:
         setFilters([]);
+        return setSelection([]);
+
       case MenuActions.ClearSelection:
         return setSelection([]);
-      case MenuActions.OpenEditorWithValueOption:
-      case MenuActions.OpenEditorWithRowOption:
-        return sendMessage(UIAction.CALL, {
-          command: `${process.env.EXT_NAMESPACE}.insertText`,
-          args: [choice === MenuActions.OpenEditorWithValueOption ? `${cellValue}` : JSON.stringify(selectedRows, null, 2)],
-        });
-      case MenuActions.ReRunQueryOption:
+
       case MenuActions.SaveCSVOption:
       case MenuActions.SaveJSONOption:
-        return menuActions[choice](choice);
+        return exportResults(choice);
     }
   }, [JSON.stringify(selection), JSON.stringify(filters), rows, rows.length]);
 
   const getMenuOptions = useCallback(({ colname, rowindex }) => {
     rowindex = Number(rowindex);
     const row = rows[rowindex];
-    const cellOptions = [];
-    const filterOptions = [];
-    const queryOptions = [MenuActions.ReRunQueryOption];
     const newSelection = selection.includes(rowindex) ? selection : (rowindex >= 0 ? [rowindex] : []);
     const isMultiSelection = newSelection.length > 1;
-    const rowOptions = row ? [
-      MenuActions.CopyRowOption,
-      MenuActions.OpenEditorWithRowOption,
-    ] : [];
-    const resultOptions = newSelection.length > 0 ? [
-      MenuActions.SaveCSVOption,
-      MenuActions.SaveJSONOption,
-    ] : [];
 
+    // ── Cell-level options ─────────────────────────────────────────────────
+    // Copy Value comes FIRST, Filter By comes second.
+    const cellOptions = [];
     if (row) {
-      let cellValue = row[colname];
-      const cellValueIsObject = cellValue && (Array.isArray(cellValue) ?? cellValue.toString() === '[object Object]');
+      const cellValue = row[colname];
+      const cellValueIsObject = cellValue && (Array.isArray(cellValue) || cellValue.toString() === '[object Object]');
       const replaceString = cellValueIsObject ? 'Cell Value' : `'${cellValue}'`;
+
+      cellOptions.push({
+        label: MenuActions.CopyCellOption.replace('{contextAction}', replaceString),
+        value: MenuActions.CopyCellOption,
+      });
+
       if (typeof cellValue !== 'undefined' && !cellValueIsObject) {
         cellOptions.push({
           label: MenuActions.FilterByValueOption.replace('{contextAction}', replaceString),
           value: MenuActions.FilterByValueOption,
         });
       }
-      cellOptions.push(
-        {
-          label: MenuActions.CopyCellOption.replace('{contextAction}', replaceString),
-          value: MenuActions.CopyCellOption,
-        },
-        {
-          label: MenuActions.OpenEditorWithValueOption.replace('{contextAction}', replaceString),
-          value: MenuActions.OpenEditorWithValueOption,
-        },
-      );
-    }
-    if (filters.length > 0) {
-      filterOptions.push(MenuActions.ClearFiltersOption);
-    }
-    if (isMultiSelection) {
-      filterOptions.push(MenuActions.ClearSelection);
     }
 
-    let options = [];
-    if (cellOptions.length > 0) {
-      options = options.concat(cellOptions);
-      options.push(MenuActions.Divider);
+    // ── Selection-level copy options ───────────────────────────────────────
+    const selectionOptions = [];
+    if (newSelection.length > 0) {
+      selectionOptions.push(MenuActions.CopyRowOption);
+      selectionOptions.push(MenuActions.CopySelectedCSV);
+      selectionOptions.push(MenuActions.CopySelectedJSON);
     }
-    if (filterOptions.length > 0) {
-      options = options.concat(filterOptions);
-      options.push(MenuActions.Divider);
-    }
-    if (rowOptions.length > 0) {
-      options = options.concat(rowOptions);
-      options.push(MenuActions.Divider);
-    }
-    if (queryOptions.length > 0) {
-      options = options.concat(queryOptions);
-      options.push(MenuActions.Divider);
-    }
-    if (resultOptions.length > 0) {
-      options = options.concat(resultOptions);
-    }
-    if (options[options.length - 1] === MenuActions.Divider) {
-      options.pop()
-    }
+
+    // ── Filter / selection management ─────────────────────────────────────
+    const filterOptions = [];
+    if (filters.length > 0) filterOptions.push(MenuActions.ClearFiltersOption);
+    if (isMultiSelection)   filterOptions.push(MenuActions.ClearSelection);
+
+    // ── Save to file ──────────────────────────────────────────────────────
+    const resultOptions = newSelection.length > 0
+      ? [MenuActions.SaveCSVOption, MenuActions.SaveJSONOption]
+      : [];
+
+    // ── Assemble with dividers, drop trailing divider ─────────────────────
+    const sections = [cellOptions, selectionOptions, filterOptions, resultOptions].filter(s => s.length > 0);
+    const options: any[] = [];
+    sections.forEach((section, i) => {
+      options.push(...section);
+      if (i < sections.length - 1) options.push(MenuActions.Divider);
+    });
     return options;
   }, [JSON.stringify(selection), JSON.stringify(filters), rows, rows.length]);
 
   let pagingProps: PagingStateProps = {};
   if (typeof page === 'number') {
-    pagingProps = {
-      currentPage: page,
-      onCurrentPageChange: changePage
-    };
+    pagingProps = { currentPage: page, onCurrentPageChange: changePage };
   } else {
-    pagingProps = {
-      defaultCurrentPage: 0
-    };
+    pagingProps = { defaultCurrentPage: 0 };
   }
   if (!result) return null;
 

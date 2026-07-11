@@ -4,7 +4,6 @@ import { MenuActions } from '../constants';
 import { useCallback } from 'react';
 import useCurrentResult from './useCurrentResult';
 import useResultsContext from './useResultsContext';
-import { IQueryOptions } from '@sqltools/types';
 
 const getCommand = (cmd: string) => `${process.env.EXT_NAMESPACE}.${cmd}`;
 
@@ -38,25 +37,5 @@ export default function useContextAction() {
     });
   }, [result]);
 
-  const reRunQuery = useCallback(() => {
-    if (!result) return;
-    const { queryType, query, queryParams, pageSize, page } = result;
-    if (queryType) {
-      sendMessage(UIAction.CALL, {
-        command: `${process.env.EXT_NAMESPACE}.${queryType}`,
-        args: [queryParams, { ...options, page: page, pageSize: pageSize || 50 }],
-      });
-      return setState({ loading: true });
-    }
-    sendMessage(UIAction.CALL, {
-      command: `${process.env.EXT_NAMESPACE}.executeQuery`,
-      args: [
-        query,
-        options as IQueryOptions
-      ],
-    });
-    return setState({ loading: true });
-  }, [result]);
-
-  return { openResults, exportResults, reRunQuery };
+  return { openResults, exportResults };
 }
