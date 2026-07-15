@@ -59,6 +59,8 @@ const Table = ({ setContextState }) => {
   // Shift+click range selection.  A ref (not state) so it never triggers
   // re-renders on its own.
   const anchorIndexRef = useRef<number | null>(null);
+  // Focus target for mousedown-in-grid — see onMouseDownCapture below.
+  const containerRef = useRef<HTMLDivElement>(null);
   const { exportResults } = useContextAction();
   const { result } = useCurrentResult();
   const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId } = result || {};
@@ -299,7 +301,20 @@ const Table = ({ setContextState }) => {
       getOptions={getMenuOptions}
       onSelect={onMenuSelect}
     >
-      <Paper square elevation={0} className="result">
+      <Paper
+        square
+        elevation={0}
+        className="result"
+        ref={containerRef}
+        tabIndex={-1}
+        style={{ outline: 'none' }}
+        // Fires before any row/cell mousedown handler can stopPropagation,
+        // guaranteeing the webview's document (rather than whatever
+        // previously had focus, e.g. the SQL editor) owns keyboard focus
+        // by the time the user presses Ctrl+A/Escape right after clicking
+        // into the grid.
+        onMouseDownCapture={() => containerRef.current?.focus()}
+      >
         {error && <QueryError messages={messages} />}
         {!error && <Grid rows={rows} columns={columnObjNames} rootComponent={GridRoot}>
           <DataTypeProvider for={columnNames} availableFilterOperations={availableFilterOperations} />
