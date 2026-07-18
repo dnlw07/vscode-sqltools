@@ -12,8 +12,13 @@
     "awsIamOptions",
     "pgOptions",
     "ssh",
-    "sshOptions"
+    "sshOptions",
+    "connectionInitSql"
   ],
+  "connectionInitSql": {
+    "ui:widget": "textarea",
+    "ui:help": "Run once when a new physical connection is opened. Applies to the initial connection and every additional pooled connection."
+  },
   "password": { "ui:widget": "password" },
   "askForPassword": { "ui:widget": "hidden" },
   "socketPath": { "ui:widget": "file" },

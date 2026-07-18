@@ -165,6 +165,15 @@ export interface IConnection<DriverOptions = any> {
   pgOptions?: DriverOptions;
 
   /**
+   * SQL to run every time a new physical connection is opened (once on the initial
+   * connection, then again for every additional pooled connection). Useful for
+   * session setup such as `SET search_path` or `SET statement_timeout`.
+   * @type {string}
+   * @memberof IConnection
+   */
+  connectionInitSql?: string;
+
+  /**
    * OracleDB specific driver options (pool). See https://node-oracledb.readthedocs.io/en/latest/api_manual/oracledb.html#createpoolparams
    * @type {PoolAttributes}
    * @memberof IConnection
@@ -510,8 +519,8 @@ export namespace NSDatabase {
     page?: number;
     total?: number;
     pageSize?: number;
-    queryType?: 'showRecords' | 'describeTable';
-    queryParams?: { [k: string]: any };
+    queryType?: 'showRecords' | 'describeTable' | 'executeQuery';
+    queryParams?: string | { [k: string]: any };
   }
   export type SearchableItem = IDatabase | ISchema | ITable | IColumn | IFunction | IProcedure | MConnectionExplorer.IChildItem;
   export type ParentItem = IDatabase | ISchema | ITable;

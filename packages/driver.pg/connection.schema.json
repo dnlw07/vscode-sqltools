@@ -129,6 +129,11 @@
       "type": "string",
       "enum": ["Enabled", "Disabled"],
       "default": "Disabled"
+    },
+    "connectionInitSql": {
+      "title": "Connection Init SQL",
+      "type": "string",
+      "description": "SQL run every time a new physical connection is opened (initial connect and every pooled connection)."
     }
   },
   "dependencies": {

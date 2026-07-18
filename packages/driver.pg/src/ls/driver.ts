@@ -1,6 +1,6 @@
 import { Pool, PoolConfig, PoolClient, types, FieldDef } from 'pg';
 import Queries from './queries';
-import { IConnectionDriver, NSDatabase, Arg0, ContextValue, MConnectionExplorer, IExpectedResult } from '@sqltools/types';
+import { IConnectionDriver, NSDatabase, Arg0, ContextValue, MConnectionExplorer, IExpectedResult, IQueryOptions } from '@sqltools/types';
 import AbstractDriver from '@sqltools/base-driver';
 import fs from 'fs';
 import zipObject from 'lodash/zipObject';
@@ -109,7 +109,23 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
       }
 
       const pool = new Pool(poolConfig);
+      const initSql = this.credentials.connectionInitSql;
       const cli = await pool.connect();
+      if (initSql && initSql.trim()) {
+        try {
+          await cli.query(initSql);
+        } catch (initError) {
+          cli.release(initError);
+          await pool.end();
+          throw new Error(`Connection init SQL failed: ${(initError && initError.message) || initError}`);
+        }
+        // Re-run on every additional pooled connection (each is a separate session).
+        pool.on('connect', client => {
+          client.query(initSql).catch(initError => {
+            this.log.error(`Connection init SQL failed on new pool connection: ${(initError && initError.message) || initError}`);
+          });
+        });
+      }
       cli.release();
       this.connection = Promise.resolve(pool);
       return this.connection;
@@ -125,36 +141,128 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     pool.end();
   }
 
+  private totalRowsCache: Map<string, number> = new Map();
+
+  private isPaginatableSelect(sql: string): boolean {
+    const stripped = sql.replace(/^(\s*--[^\n]*\n|\s*\/\*[\s\S]*?\*\/)+/g, '').trim();
+    const keyword = (stripped.match(/^\(*\s*([A-Za-z_]+)/) || [])[1] || '';
+    if (!/^(SELECT|WITH)$/i.test(keyword)) return false;
+    const tail = stripped.slice(-150).toUpperCase();
+    return !/\bLIMIT\b/.test(tail) && !/\bOFFSET\b/.test(tail);
+  }
+
+  private async execPaginatedSelect(cli: PoolClient, sql: string, opt: IQueryOptions & { page?: number, pageSize?: number }): Promise<NSDatabase.IResult> {
+    const pageSize = Math.max(1, Number(opt.pageSize) || Number(this.credentials.previewLimit) || 50);
+    const page = Math.max(0, Number(opt.page) || 0);
+    const offset = page * pageSize;
+    const cacheKey = `${opt.requestId || ''} ${sql}`;
+    const knownTotal = page === 0 ? undefined : this.totalRowsCache.get(cacheKey);
+
+    const startedAt = Date.now();
+    const data = await cli.query({ text: `${sql} LIMIT ${pageSize + 1} OFFSET ${offset}`, rowMode: 'array' });
+    const cols = this.getColumnNames(data.fields || []);
+    const hasMore = data.rows.length > pageSize;
+    const rows = hasMore ? data.rows.slice(0, pageSize) : data.rows;
+
+    let total: number;
+    let exact = true;
+    if (typeof knownTotal === 'number') {
+      total = knownTotal;
+    } else {
+      try {
+        const countResult = await cli.query(`SELECT COUNT(*) AS "SQLTOOLS_TOTAL" FROM (${sql}) AS "SQLTOOLS_CNT"`);
+        total = Number(countResult.rows[0] && countResult.rows[0].SQLTOOLS_TOTAL);
+        if (!isFinite(total)) throw new Error('Count query returned a non-numeric value.');
+      } catch (countError) {
+        // COUNT wrapper not accepted (e.g. statement contains constructs that can't be
+        // subselected) - advertise one extra page when more rows exist so the "next"
+        // control stays enabled instead of failing the whole query.
+        exact = false;
+        total = hasMore ? (page + 1) * pageSize + 1 : page * pageSize + rows.length;
+      }
+    }
+
+    if (exact) {
+      this.totalRowsCache.set(cacheKey, total);
+      if (this.totalRowsCache.size > 100) {
+        this.totalRowsCache.delete(this.totalRowsCache.keys().next().value);
+      }
+    }
+
+    const elapsed = Date.now() - startedAt;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const message = exact
+      ? `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} of ${totalPages} (${total} total, ${pageSize}/page) in ${elapsed}ms.`
+      : `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} (${pageSize}/page) in ${elapsed}ms.`;
+
+    return {
+      connId: this.getId(),
+      requestId: opt.requestId,
+      resultId: generateId(),
+      cols,
+      results: this.mapRows(rows, cols),
+      messages: [this.prepareMessage(message)],
+      query: sql,
+      queryType: 'executeQuery',
+      queryParams: sql,
+      page,
+      pageSize,
+      total,
+    };
+  }
+
   public query: (typeof AbstractDriver)['prototype']['query'] = (query, opt = {}) => {
     const messages = [];
     let cli : PoolClient;
     const { requestId } = opt;
+    const rawSql = query.toString();
+    const queries = queryParse(rawSql, 'pg');
+    const canPaginate = queries.length === 1 && this.isPaginatableSelect(queries[0]);
+
     return this.open()
       .then(async (pool) => {
         cli = await pool.connect();
         cli.on('notice', notice => messages.push(this.prepareMessage(`${notice.name.toUpperCase()}: ${notice.message}`)));
-        const results = await cli.query({ text: query.toString(), rowMode: 'array' });
+
+        if (canPaginate) {
+          const paginated = await this.execPaginatedSelect(cli, queries[0], opt);
+          cli.release();
+          return { paginated };
+        }
+
+        const startedAt = Date.now();
+        const results = await cli.query({ text: rawSql, rowMode: 'array' });
         cli.release();
-        return results;
+        return { elapsed: Date.now() - startedAt, results };
       })
-      .then((results: any[] | any) => {
-        const queries = queryParse(query.toString(), 'pg');
+      .then((payload: { paginated: NSDatabase.IResult } | { elapsed: number, results: any[] | any }) => {
+        if ('paginated' in payload) {
+          return [{
+            ...payload.paginated,
+            requestId,
+            messages: messages.concat(payload.paginated.messages),
+          }];
+        }
+
+        const { elapsed } = payload;
+        let results = payload.results;
         if (!Array.isArray(results)) {
           results = [results];
         }
 
         return results.map((r, i): NSDatabase.IResult => {
           const cols = this.getColumnNames(r.fields || []);
+          const isSelect = r.command && r.command.toLowerCase() === 'select';
+          const rowCount = typeof r.rowCount === 'number' ? r.rowCount : 0;
+          const outcome = isSelect
+            ? `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} returned in ${elapsed}ms.`
+            : `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} affected in ${elapsed}ms.`;
           return {
             requestId,
             resultId: generateId(),
             connId: this.getId(),
             cols,
-            messages: messages.concat([
-              this.prepareMessage(`${r.command} successfully executed.${
-                r.command.toLowerCase() !== 'select' && typeof r.rowCount === 'number' ? ` ${r.rowCount} rows were affected.` : ''
-              }`)
-            ]),
+            messages: messages.concat([this.prepareMessage(outcome)]),
             query: queries[i],
             results: this.mapRows(r.rows, cols),
           };
