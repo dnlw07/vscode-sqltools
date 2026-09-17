@@ -66,13 +66,28 @@
     font-size: var(--vscode-editor-font-size, 13px);
   }
 
-  // the frozen row-number column's default divider (#aaa, 2px) reads as a bright white bar on dark themes
+  // Match the row-number divider to the cell borders.
   :global(.tabulator .tabulator-frozen.tabulator-frozen-left) {
-    border-right: 1px solid var(--vscode-panel-border, #3b3b3b) !important;
+    border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
   }
 
   :global(.tabulator .tabulator-frozen.tabulator-frozen-right) {
-    border-left: 1px solid var(--vscode-panel-border, #3b3b3b) !important;
+    border-left: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+  }
+
+  :global(.tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left),
+  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left) {
+    border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+  }
+
+  :global(.tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-right),
+  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-right) {
+    border-left: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+  }
+
+  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-row-header) {
+    border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+    border-bottom: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
   }
 
   :global(.tabulator .tabulator-header) {
