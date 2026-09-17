@@ -37,3 +37,22 @@
   color: var(--vscode-input-placeholderForeground);
   background: var(--vscode-inputOption-activeBackground);
 }
+
+.tabulatorContainer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tabulator {
+  flex: 1;
+  min-height: 0;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px;
+}
