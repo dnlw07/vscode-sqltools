@@ -12,7 +12,8 @@ import useContextAction from '../../hooks/useContextAction';
 import style from './style.m.scss';
 import 'tabulator-tables/dist/css/tabulator.css';
 
-const Tabulator = require('tabulator-tables');
+const tabulatorModule = require('tabulator-tables');
+const Tabulator = tabulatorModule.default || tabulatorModule.TabulatorFull || tabulatorModule;
 
 function rowsToCSV(rows: any[], columns: string[]): string {
   if (!rows.length) return '';
