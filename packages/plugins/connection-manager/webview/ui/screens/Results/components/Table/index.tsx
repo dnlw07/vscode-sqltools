@@ -8,7 +8,6 @@ import { clipboardInsert } from '../../../../lib/utils';
 import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
-import useContextAction from '../../hooks/useContextAction';
 import style from './style.m.scss';
 import 'tabulator-tables/dist/css/tabulator.css';
 
@@ -32,7 +31,6 @@ const Table = ({ setContextState }) => {
   const activeCellRef = useRef<{ rowindex: number; colname: string } | null>(null);
   const [selection, setSelection] = useState<number[]>([]);
   const [hasFilters, setHasFilters] = useState(false);
-  const { exportResults } = useContextAction();
   const { result } = useCurrentResult();
   const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId } = result || {};
 
@@ -49,7 +47,7 @@ const Table = ({ setContextState }) => {
     const row = rows[index];
     const indexes = selection.length ? selection : row ? [index] : [];
     const options: any[] = [];
-    if (row) {
+    if (row && colname) {
       const value = row[colname];
       const objectValue = value !== null && typeof value === 'object';
       const label = objectValue ? 'Cell Value' : `'${value}'`;
@@ -58,7 +56,7 @@ const Table = ({ setContextState }) => {
       options.push(MenuActions.CopyColumnName);
     }
     if (cols.length) options.push(MenuActions.CopyColumnNames);
-    if (indexes.length) options.push(MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON, MenuActions.SaveCSVOption, MenuActions.SaveJSONOption);
+    if (indexes.length) options.push(MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON);
     if (hasFilters) options.push(MenuActions.ClearFiltersOption);
     if (indexes.length > 1) options.push(MenuActions.ClearSelection);
     return options;
@@ -93,10 +91,8 @@ const Table = ({ setContextState }) => {
       case MenuActions.ClearSelection:
         tableRef.current?.clearCellSelection();
         return setSelection([]);
-      case MenuActions.SaveCSVOption:
-      case MenuActions.SaveJSONOption: return exportResults(choice);
     }
-  }, [cols, exportResults, rows, selection]);
+  }, [cols, rows, selection]);
 
   useEffect(() => {
     if (!tableElementRef.current || error || !result) return undefined;
@@ -117,18 +113,36 @@ const Table = ({ setContextState }) => {
       cellMouseDown: (_event, cell) => {
         const rowindex = rows.indexOf(cell.getRow().getData());
         const colname = cell.getColumn().getField();
-        activeCellRef.current = { rowindex, colname };
         cell.getElement().dataset.rowindex = String(rowindex);
-        cell.getElement().dataset.colname = colname;
+        if (colname) {
+          activeCellRef.current = { rowindex, colname };
+          cell.getElement().dataset.colname = colname;
+        } else {
+          delete cell.getElement().dataset.colname;
+        }
       },
       cellContext: (_event, cell) => {
         const element = cell.getElement();
+        const colname = cell.getColumn().getField();
         element.dataset.rowindex = String(rows.indexOf(cell.getRow().getData()));
-        element.dataset.colname = cell.getColumn().getField();
+        if (colname) {
+          element.dataset.colname = colname;
+        } else {
+          delete element.dataset.colname;
+        }
       },
       rowFormatter: row => {
+        // dataset must be set at render time, not only on click, so the first right-click on any cell already has full context
+        const rowindex = String(rows.indexOf(row.getData()));
         const rowHeader = row.getElement().querySelector('.tabulator-row-header') as HTMLElement;
-        if (rowHeader) rowHeader.dataset.rowindex = String(rows.indexOf(row.getData()));
+        if (rowHeader) rowHeader.dataset.rowindex = rowindex;
+        row.getCells().forEach(cell => {
+          const field = cell.getColumn().getField();
+          if (!field) return; // skip the row-header pseudo-column, it has no field and must not carry a colname
+          const element = cell.getElement();
+          element.dataset.rowindex = rowindex;
+          element.dataset.colname = field;
+        });
       },
       rangeAdded: range => {
         const rowIndexes = range.getRows().map(row => rows.indexOf(row.getData()));
