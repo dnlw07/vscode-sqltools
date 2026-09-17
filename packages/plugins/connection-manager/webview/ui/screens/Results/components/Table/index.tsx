@@ -30,6 +30,7 @@ const Table = ({ setContextState }) => {
   const tableRef = useRef<any>(null);
   const activeCellRef = useRef<{ rowindex: number; colname: string } | null>(null);
   const [selection, setSelection] = useState<number[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [hasFilters, setHasFilters] = useState(false);
   const { result } = useCurrentResult();
   const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId } = result || {};
@@ -53,8 +54,8 @@ const Table = ({ setContextState }) => {
       const label = objectValue ? 'Cell Value' : `'${value}'`;
       options.push({ label: MenuActions.CopyCellOption.replace('{contextAction}', label), value: MenuActions.CopyCellOption });
       if (typeof value !== 'undefined' && !objectValue) options.push({ label: MenuActions.FilterByValueOption.replace('{contextAction}', label), value: MenuActions.FilterByValueOption });
-      options.push(MenuActions.CopyColumnName);
     }
+    if (colname) options.push(MenuActions.CopyColumnName);
     if (cols.length) options.push(MenuActions.CopyColumnNames);
     if (indexes.length) options.push(MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON);
     if (hasFilters) options.push(MenuActions.ClearFiltersOption);
@@ -71,8 +72,15 @@ const Table = ({ setContextState }) => {
 
   const onMenuSelect = useCallback((choice: string, { rowindex, colname }) => {
     const index = Number(rowindex);
-    const indexes = selection.length ? selection : [index];
+    // read the live range straight from Tabulator, since React state can lag behind
+    // a selection made by clicking a column/row header just before opening the menu
+    const ranges = tableRef.current?.getRanges?.() || [];
+    const activeRange = ranges[ranges.length - 1];
+    const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
+    const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
+    const indexes = rangeRowIndexes.length ? rangeRowIndexes : selection.length ? selection : [index];
     const selectedRows = indexes.map(rowIndex => rows[rowIndex]).filter(Boolean);
+    const exportCols = rangeCols.length ? rangeCols : selectedColumns.length ? selectedColumns : cols;
     const value = (rows[index] || {})[colname];
     switch (choice) {
       case MenuActions.FilterByValueOption:
@@ -82,8 +90,11 @@ const Table = ({ setContextState }) => {
       case MenuActions.CopyCellOption: return clipboardInsert(value);
       case MenuActions.CopyColumnName: return clipboardInsert(colname);
       case MenuActions.CopyColumnNames: return clipboardInsert(cols.join(', '));
-      case MenuActions.CopySelectedCSV: return clipboardInsert(rowsToCSV(selectedRows, cols));
-      case MenuActions.CopySelectedJSON: return clipboardInsert(JSON.stringify(selectedRows.length === 1 ? selectedRows[0] : selectedRows, null, 2));
+      case MenuActions.CopySelectedCSV: return clipboardInsert(rowsToCSV(selectedRows, exportCols));
+      case MenuActions.CopySelectedJSON: {
+        const projected = selectedRows.map(row => exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any));
+        return clipboardInsert(JSON.stringify(projected.length === 1 ? projected[0] : projected, null, 2));
+      }
       case MenuActions.ClearFiltersOption:
         tableRef.current?.clearFilter();
         setHasFilters(false);
@@ -92,7 +103,7 @@ const Table = ({ setContextState }) => {
         tableRef.current?.clearCellSelection();
         return setSelection([]);
     }
-  }, [cols, rows, selection]);
+  }, [cols, rows, selection, selectedColumns]);
 
   useEffect(() => {
     if (!tableElementRef.current || error || !result) return undefined;
@@ -131,6 +142,15 @@ const Table = ({ setContextState }) => {
           delete element.dataset.colname;
         }
       },
+      headerContext: (_event, column) => {
+        const element = column.getElement();
+        const colname = column.getField();
+        if (colname) {
+          element.dataset.colname = colname;
+        } else {
+          delete element.dataset.colname;
+        }
+      },
       rowFormatter: row => {
         // dataset must be set at render time, not only on click, so the first right-click on any cell already has full context
         const rowindex = String(rows.indexOf(row.getData()));
@@ -147,8 +167,17 @@ const Table = ({ setContextState }) => {
       rangeAdded: range => {
         const rowIndexes = range.getRows().map(row => rows.indexOf(row.getData()));
         setSelection(rowIndexes.filter(index => index >= 0));
+        setSelectedColumns(range.getColumns().map(column => column.getField()).filter(Boolean));
       },
-      rangeRemoved: () => setSelection([]),
+      rangeRemoved: () => { setSelection([]); setSelectedColumns([]); },
+    });
+    // dataset must be set at render time, not only reactively on the headerContext event,
+    // since that event has proven unreliable for the very first right-click on a header
+    table.on('tableBuilt', () => {
+      table.getColumns().forEach(column => {
+        const field = column.getField();
+        if (field) column.getElement().dataset.colname = field;
+      });
     });
     tableRef.current = table;
     return () => { table.destroy(); tableRef.current = null; };

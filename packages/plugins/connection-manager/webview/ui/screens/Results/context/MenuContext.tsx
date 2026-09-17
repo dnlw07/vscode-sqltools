@@ -52,14 +52,18 @@ export const MenuProvider = ({
   const openMenu = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       e.preventDefault();
+      // the click target may be a nested element (e.g. header title text) that doesn't
+      // itself carry the data-* attributes set by Tabulator on the cell/header/row-header
+      const source = (e.target as HTMLElement)?.closest?.('[data-rowindex], [data-colname]') as HTMLElement;
+      const dataset = source?.dataset || {};
       const options =
         typeof getOptionsRef.current === 'function'
-          ? getOptionsRef.current((e.target as any).dataset || {}, e)
+          ? getOptionsRef.current(dataset, e)
           : [];
       if (!options || options.length === 0) return;
-      onOpenRef.current && onOpenRef.current((e.target as any).dataset || {});
+      onOpenRef.current && onOpenRef.current(dataset);
       setState({
-        data: (e.target as any).dataset || {},
+        data: dataset,
         options,
         anchorEl: e.currentTarget,
         position: {
