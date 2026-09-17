@@ -210,6 +210,29 @@ const Table = ({ setContextState }) => {
     return () => { table.destroy(); tableRef.current = null; };
   }, [cols, error, result, rows]);
 
+  // reads the live Tabulator range (falling back to prior selection state) for keyboard export shortcuts
+  const getRangeExport = useCallback(() => {
+    const ranges = tableRef.current?.getRanges?.() || [];
+    const activeRange = ranges[ranges.length - 1];
+    const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
+    const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
+    const indexes = rangeRowIndexes.length ? rangeRowIndexes : selection;
+    const exportCols = rangeCols.length ? rangeCols : selectedColumns.length ? selectedColumns : cols;
+    const selectedRows = indexes.map(rowIndex => rows[rowIndex]).filter(Boolean);
+    return { selectedRows, exportCols };
+  }, [rows, cols, selection, selectedColumns]);
+
+  const selectAllCells = useCallback(() => {
+    const table = tableRef.current;
+    if (!table) return;
+    const rowComponents = table.getRows();
+    const columnComponents = table.getColumns().filter(column => column.getField());
+    if (!rowComponents.length || !columnComponents.length) return;
+    const firstCell = rowComponents[0].getCell(columnComponents[0].getField());
+    const lastCell = rowComponents[rowComponents.length - 1].getCell(columnComponents[columnComponents.length - 1].getField());
+    if (firstCell && lastCell) table.addRange(firstCell, lastCell);
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement)?.matches('input, textarea')) return;
@@ -217,18 +240,31 @@ const Table = ({ setContextState }) => {
       if (event.key === 'Escape') {
         tableRef.current?.clearCellSelection();
         setSelection([]);
-      } else if ((event.ctrlKey || event.metaKey) && key === 'c' && !event.shiftKey && activeCellRef.current && !window.getSelection()?.toString()) {
+      } else if ((event.ctrlKey || event.metaKey) && key === 'a') {
         event.preventDefault();
-        const active = activeCellRef.current;
-        clipboardInsert(rows[active.rowindex]?.[active.colname]);
-      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 'c' && selection.length) {
+        selectAllCells();
+      } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 'c') {
         event.preventDefault();
-        clipboardInsert(rowsToCSV(selection.map(index => rows[index]).filter(Boolean), cols));
+        const { selectedRows, exportCols } = getRangeExport();
+        if (!selectedRows.length || !exportCols.length) return;
+        const projected = selectedRows.map(row => exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any));
+        clipboardInsert(JSON.stringify(projected.length === 1 ? projected[0] : projected, null, 2));
+      } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'c' && !window.getSelection()?.toString()) {
+        event.preventDefault();
+        const { selectedRows, exportCols } = getRangeExport();
+        if (selectedRows.length === 1 && exportCols.length === 1) {
+          clipboardInsert(selectedRows[0][exportCols[0]]);
+        } else if (selectedRows.length && exportCols.length) {
+          clipboardInsert(rowsToCSV(selectedRows, exportCols));
+        } else if (activeCellRef.current) {
+          const active = activeCellRef.current;
+          clipboardInsert(rows[active.rowindex]?.[active.colname]);
+        }
       }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [cols, rows, selection]);
+  }, [rows, getRangeExport, selectAllCells]);
 
   if (!result) return null;
   return (
