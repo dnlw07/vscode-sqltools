@@ -31,8 +31,8 @@ export default abstract class WebviewProvider<State = any> implements Disposable
   <style>
   :root {${cssVariables}}
   </style>
-  <link rel="stylesheet" type="text/css" href="${this.prepareUrl(Context.asAbsolutePath(`./dist/ui/commons.css`))}">
   <link rel="stylesheet" type="text/css" href="${this.prepareUrl(Context.asAbsolutePath(`./dist/ui/vendor.css`))}">
+  <link rel="stylesheet" type="text/css" href="${this.prepareUrl(Context.asAbsolutePath(`./dist/ui/commons.css`))}">
 </head>
 <body>
   <link rel="stylesheet" type="text/css" href="${this.prepareUrl(Context.asAbsolutePath(`./dist/ui/theme.css`))}">

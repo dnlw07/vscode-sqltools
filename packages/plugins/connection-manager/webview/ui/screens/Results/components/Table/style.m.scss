@@ -68,13 +68,13 @@
 
   :global(.tabulator .tabulator-header) {
     border-bottom: 1px solid var(--vscode-panel-border, #3b3b3b);
-    background: #2a2d30;
+    background: var(--vscode-editorWidget-background, #2a2d30);
     color: var(--vscode-editor-foreground, #cccccc);
   }
 
   :global(.tabulator .tabulator-col) {
     border-right: 1px solid var(--vscode-panel-border, #3b3b3b);
-    background: #2a2d30;
+    background: var(--vscode-editorWidget-background, #2a2d30);
   }
 
   :global(.tabulator .tabulator-col.tabulator-sortable:hover),
@@ -109,29 +109,61 @@
   }
 
   :global(.tabulator .tabulator-row-header) {
-    background: #2a2d30;
+    background: var(--vscode-editorWidget-background, #2a2d30);
     color: var(--vscode-descriptionForeground, #858585);
   }
 
   :global(.tabulator .tabulator-row.tabulator-selectable:hover) {
-    background: #2d2f33;
+    background: var(--vscode-list-hoverBackground, #2d2f33);
   }
 
   :global(.tabulator .tabulator-row.tabulator-selected),
   :global(.tabulator .tabulator-row.tabulator-selected:hover),
   :global(.tabulator .tabulator-row.tabulator-selected .tabulator-cell),
-  :global(.tabulator .tabulator-row.tabulator-selected .tabulator-row-header) {
-    background: #1f4d74;
-    color: #ffffff;
-  }
-
-  :global(.tabulator .tabulator-range) {
-    background: rgba(33, 120, 210, 0.22);
-    border: 1px solid #4aa3ff;
-  }
-
-  :global(.tabulator .tabulator-range-highlight) {
+  :global(.tabulator .tabulator-row.tabulator-selected .tabulator-row-header),
+  :global(.tabulator .tabulator-cell.tabulator-selected),
+  :global(.tabulator .tabulator-cell.tabulator-selected:hover) {
     background: var(--vscode-editor-selectionBackground, #264f78);
+    color: var(--vscode-editor-selectionForeground, #ffffff);
+  }
+
+  // actual cell-range selection (selectableRange) uses tabulator-range-* classes, not tabulator-selected
+  :global(.tabulator-row .tabulator-cell.tabulator-range-selected) {
+    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    color: var(--vscode-editor-selectionForeground, #ffffff) !important;
+  }
+
+  :global(.tabulator .tabulator-header .tabulator-col.tabulator-range-highlight) {
+    background: var(--vscode-editor-inactiveSelectionBackground, #3a3d41) !important;
+    color: var(--vscode-editor-foreground, #cccccc) !important;
+  }
+
+  :global(.tabulator .tabulator-header .tabulator-col.tabulator-range-selected) {
+    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    color: var(--vscode-editor-selectionForeground, #ffffff) !important;
+  }
+
+  :global(.tabulator-row.tabulator-range-highlight .tabulator-cell.tabulator-range-row-header) {
+    background: var(--vscode-editor-inactiveSelectionBackground, #3a3d41) !important;
+    color: var(--vscode-editor-foreground, #cccccc) !important;
+  }
+
+  :global(.tabulator-row.tabulator-range-highlight.tabulator-range-selected .tabulator-cell.tabulator-range-row-header),
+  :global(.tabulator-row.tabulator-range-selected .tabulator-cell.tabulator-range-row-header) {
+    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    color: var(--vscode-editor-selectionForeground, #ffffff) !important;
+  }
+
+  :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range) {
+    border-color: var(--vscode-focusBorder, #4aa3ff);
+  }
+
+  :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range.tabulator-range-active::after) {
+    background-color: var(--vscode-focusBorder, #4aa3ff);
+  }
+
+  :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active) {
+    border-color: var(--vscode-focusBorder, #4aa3ff);
   }
 
   :global(.tabulator .tabulator-footer) {
