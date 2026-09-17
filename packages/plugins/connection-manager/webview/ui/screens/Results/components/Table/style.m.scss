@@ -66,6 +66,15 @@
     font-size: var(--vscode-editor-font-size, 13px);
   }
 
+  // the frozen row-number column's default divider (#aaa, 2px) reads as a bright white bar on dark themes
+  :global(.tabulator .tabulator-frozen.tabulator-frozen-left) {
+    border-right: 1px solid var(--vscode-panel-border, #3b3b3b) !important;
+  }
+
+  :global(.tabulator .tabulator-frozen.tabulator-frozen-right) {
+    border-left: 1px solid var(--vscode-panel-border, #3b3b3b) !important;
+  }
+
   :global(.tabulator .tabulator-header) {
     border-bottom: 1px solid var(--vscode-panel-border, #3b3b3b);
     background: var(--vscode-editorWidget-background, #2a2d30);
