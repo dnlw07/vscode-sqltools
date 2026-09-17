@@ -29,7 +29,6 @@
 .filterCell {
   padding: 0;
   background: var(--vscode-input-background);
-  background: red;
 }
 .filterCellActive {
   composes: filterCell;
@@ -56,4 +55,92 @@
   justify-content: center;
   gap: 12px;
   padding: 4px;
+}
+
+.tabulatorContainer {
+  :global(.tabulator) {
+    border: 1px solid var(--vscode-panel-border, #3b3b3b);
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #cccccc);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: var(--vscode-editor-font-size, 13px);
+  }
+
+  :global(.tabulator .tabulator-header) {
+    border-bottom: 1px solid var(--vscode-panel-border, #3b3b3b);
+    background: #2a2d30;
+    color: var(--vscode-editor-foreground, #cccccc);
+  }
+
+  :global(.tabulator .tabulator-col) {
+    border-right: 1px solid var(--vscode-panel-border, #3b3b3b);
+    background: #2a2d30;
+  }
+
+  :global(.tabulator .tabulator-col.tabulator-sortable:hover),
+  :global(.tabulator .tabulator-col.tabulator-col-group:hover) {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+  }
+
+  :global(.tabulator .tabulator-col-title),
+  :global(.tabulator .tabulator-col-sorter) {
+    color: var(--vscode-foreground, #cccccc);
+    background: transparent;
+  }
+
+  :global(.tabulator .tabulator-row) {
+    border-bottom: 1px solid var(--vscode-panel-border, #2d2d2d);
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #cccccc);
+  }
+
+  :global(.tabulator .tabulator-row:nth-child(even)) {
+    background: var(--vscode-sideBar-background, #252526);
+  }
+
+  :global(.tabulator .tabulator-row:hover) {
+    background: #2d2f33;
+  }
+
+  :global(.tabulator .tabulator-cell),
+  :global(.tabulator .tabulator-row-header) {
+    border-right: 1px solid var(--vscode-panel-border, #2d2d2d);
+    color: var(--vscode-editor-foreground, #cccccc);
+  }
+
+  :global(.tabulator .tabulator-row-header) {
+    background: #2a2d30;
+    color: var(--vscode-descriptionForeground, #858585);
+  }
+
+  :global(.tabulator .tabulator-row.tabulator-selectable:hover) {
+    background: #2d2f33;
+  }
+
+  :global(.tabulator .tabulator-row.tabulator-selected),
+  :global(.tabulator .tabulator-row.tabulator-selected:hover),
+  :global(.tabulator .tabulator-row.tabulator-selected .tabulator-cell),
+  :global(.tabulator .tabulator-row.tabulator-selected .tabulator-row-header) {
+    background: #1f4d74;
+    color: #ffffff;
+  }
+
+  :global(.tabulator .tabulator-range) {
+    background: rgba(33, 120, 210, 0.22);
+    border: 1px solid #4aa3ff;
+  }
+
+  :global(.tabulator .tabulator-range-highlight) {
+    background: var(--vscode-editor-selectionBackground, #264f78);
+  }
+
+  :global(.tabulator .tabulator-footer) {
+    border-top: 1px solid var(--vscode-panel-border, #3b3b3b);
+    background: var(--vscode-sideBar-background, #252526);
+    color: var(--vscode-editor-foreground, #cccccc);
+  }
+
+  :global(.tabulator .tabulator-placeholder span) {
+    color: var(--vscode-descriptionForeground, #858585);
+  }
 }
