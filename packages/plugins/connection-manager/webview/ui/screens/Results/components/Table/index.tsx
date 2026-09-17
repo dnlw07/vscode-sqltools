@@ -8,8 +8,8 @@ import { clipboardInsert } from '../../../../lib/utils';
 import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
-import style from './style.m.scss';
 import 'tabulator-tables/dist/css/tabulator.css';
+import style from './style.m.scss';
 
 const tabulatorModule = require('tabulator-tables');
 const Tabulator = tabulatorModule.default || tabulatorModule.TabulatorFull || tabulatorModule;
