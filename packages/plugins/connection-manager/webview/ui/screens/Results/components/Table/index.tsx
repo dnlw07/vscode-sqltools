@@ -47,19 +47,35 @@ const Table = ({ setContextState }) => {
     const index = Number(rowindex);
     const row = rows[index];
     const indexes = selection.length ? selection : row ? [index] : [];
-    const options: any[] = [];
+    const groups: any[][] = [];
+
     if (row && colname) {
       const value = row[colname];
       const objectValue = value !== null && typeof value === 'object';
       const label = objectValue ? 'Cell Value' : `'${value}'`;
-      options.push({ label: MenuActions.CopyCellOption.replace('{contextAction}', label), value: MenuActions.CopyCellOption });
-      if (typeof value !== 'undefined' && !objectValue) options.push({ label: MenuActions.FilterByValueOption.replace('{contextAction}', label), value: MenuActions.FilterByValueOption });
+      groups.push([{ label: MenuActions.CopyCellOption.replace('{contextAction}', label), value: MenuActions.CopyCellOption }]);
+      if (typeof value !== 'undefined' && !objectValue) {
+        groups.push([{ label: MenuActions.FilterByValueOption.replace('{contextAction}', label), value: MenuActions.FilterByValueOption }]);
+      }
     }
-    if (colname) options.push(MenuActions.CopyColumnName);
-    if (cols.length) options.push(MenuActions.CopyColumnNames);
-    if (indexes.length) options.push(MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON);
-    if (hasFilters) options.push(MenuActions.ClearFiltersOption);
-    if (indexes.length > 1) options.push(MenuActions.ClearSelection);
+
+    const columnNameGroup: any[] = [];
+    if (colname) columnNameGroup.push(MenuActions.CopyColumnName);
+    if (cols.length) columnNameGroup.push(MenuActions.CopyColumnNames);
+    if (columnNameGroup.length) groups.push(columnNameGroup);
+
+    if (indexes.length) groups.push([MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON]);
+
+    const miscGroup: any[] = [];
+    if (hasFilters) miscGroup.push(MenuActions.ClearFiltersOption);
+    if (indexes.length > 1) miscGroup.push(MenuActions.ClearSelection);
+    if (miscGroup.length) groups.push(miscGroup);
+
+    const options: any[] = [];
+    groups.forEach((group, i) => {
+      if (i > 0) options.push(MenuActions.Divider);
+      options.push(...group);
+    });
     return options;
   }, [cols, hasFilters, rows, selection]);
 
@@ -67,8 +83,16 @@ const Table = ({ setContextState }) => {
     const index = Number(rowindex);
     if (Number.isNaN(index) || index < 0) return;
     if (colname) activeCellRef.current = { rowindex: index, colname };
-    if (!selection.length) setSelection([index]);
-  }, [selection.length]);
+    // replace the selection with the newly targeted row, unless it's already part of an existing multi-row selection
+    if (!selection.includes(index)) setSelection([index]);
+    // right-clicking a cell outside the current Tabulator range doesn't move that range on its own -
+    // move it here so the visual selection and getRanges() both reflect the cell the menu will act on
+    if (colname && tableRef.current) {
+      const rowComponent = tableRef.current.getRows().find(row => row.getData() === rows[index]);
+      const cell = rowComponent?.getCell(colname);
+      if (cell) tableRef.current.addRange(cell);
+    }
+  }, [selection, rows]);
 
   const onMenuSelect = useCallback((choice: string, { rowindex, colname }) => {
     const index = Number(rowindex);
@@ -78,9 +102,12 @@ const Table = ({ setContextState }) => {
     const activeRange = ranges[ranges.length - 1];
     const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
     const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
-    const indexes = rangeRowIndexes.length ? rangeRowIndexes : selection.length ? selection : [index];
+    // a right-click on a cell outside the current Tabulator range doesn't move that range - in that
+    // case the freshly clicked cell (not the stale range) is the one the user means to act on
+    const clickIsInsideRange = activeRange && rangeRowIndexes.includes(index) && (!colname || rangeCols.includes(colname));
+    const indexes = clickIsInsideRange ? rangeRowIndexes : selection.includes(index) ? selection : [index];
     const selectedRows = indexes.map(rowIndex => rows[rowIndex]).filter(Boolean);
-    const exportCols = rangeCols.length ? rangeCols : selectedColumns.length ? selectedColumns : cols;
+    const exportCols = clickIsInsideRange ? rangeCols : colname ? [colname] : selectedColumns.length ? selectedColumns : cols;
     const value = (rows[index] || {})[colname];
     switch (choice) {
       case MenuActions.FilterByValueOption:

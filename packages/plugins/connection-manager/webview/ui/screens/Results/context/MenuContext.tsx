@@ -79,6 +79,49 @@ export const MenuProvider = ({
     setState(initialState);
   }, []);
 
+  // While our menu is open, MUI's own backdrop sits on top of the table and swallows
+  // the next right-click before it ever reaches the Paper's onContextMenu handler below,
+  // letting the browser/library default context menu show through instead. Intercept
+  // right-clicks at the document level (capture phase, before the backdrop sees them)
+  // so a second right-click repositions our own menu instead of opening a different one.
+  React.useEffect(() => {
+    if (!anchorEl) return undefined;
+    const handler = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // e.target here is the invisible backdrop/menu overlay, not the cell under the cursor -
+      // briefly make overlays transparent to pointer events so elementFromPoint can find the real cell
+      const overlays = Array.from(document.querySelectorAll('.MuiPopover-root, .MuiBackdrop-root')) as HTMLElement[];
+      const previousPointerEvents = overlays.map(el => el.style.pointerEvents);
+      overlays.forEach(el => { el.style.pointerEvents = 'none'; });
+      const realTarget = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement;
+      overlays.forEach((el, i) => { el.style.pointerEvents = previousPointerEvents[i]; });
+
+      const source = realTarget?.closest?.('[data-rowindex], [data-colname]') as HTMLElement;
+      const dataset = source?.dataset || {};
+      const options =
+        typeof getOptionsRef.current === 'function'
+          ? getOptionsRef.current(dataset, e as any)
+          : [];
+      if (!options || options.length === 0) {
+        setState(initialState);
+        return;
+      }
+      onOpenRef.current && onOpenRef.current(dataset);
+      setState({
+        data: dataset,
+        options,
+        anchorEl: realTarget || anchorEl,
+        position: {
+          x: e.clientX,
+          y: e.clientY,
+        },
+      });
+    };
+    document.addEventListener('contextmenu', handler, true);
+    return () => document.removeEventListener('contextmenu', handler, true);
+  }, [anchorEl]);
+
   const onSelect = useCallback(
     (choice: string) => {
       closeMenu();
