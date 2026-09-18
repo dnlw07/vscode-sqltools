@@ -50,6 +50,8 @@ const Table = ({ setContextState }) => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const { result } = useCurrentResult();
   const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId, columnMeta = [], editable, nonEditableReason } = result || {};
+  // without a primary key, every mapped column's original value is used to locate the row on save
+  const hasPrimaryKey = columnMeta.some(column => column.isPk);
 
   const cancelEdits = useCallback(() => {
     pendingEditsRef.current.forEach(edit => {
@@ -69,7 +71,8 @@ const Table = ({ setContextState }) => {
       const source = columnMeta.find(column => column.name === edit.colname);
       if (!source?.table || !source.sourceColumn || !source.schema) return;
       const row = rows[edit.rowindex];
-      const primaryKey = columnMeta.filter(column => column.isPk).reduce((values, column) => {
+      const matchColumns = hasPrimaryKey ? columnMeta.filter(column => column.isPk) : columnMeta.filter(column => column.sourceColumn);
+      const primaryKey = matchColumns.reduce((values, column) => {
         values[column.sourceColumn] = row[column.name];
         return values;
       }, {} as any);
@@ -93,7 +96,7 @@ const Table = ({ setContextState }) => {
     setSaving(true);
     setSaveError(null);
     sendMessage(UIAction.CALL, { command: `${process.env.EXT_NAMESPACE}.applyResultEdits`, args: [[...editsByRow.values()], { requestId }], correlationId });
-  }, [columnMeta, editable, requestId, rows, saving]);
+  }, [columnMeta, editable, hasPrimaryKey, requestId, rows, saving]);
 
   // shared bookkeeping for both interactive edits and programmatic (paste) value changes
   const applyEditToCell = useCallback((cell: any, colname: string) => {
@@ -446,6 +449,7 @@ const Table = ({ setContextState }) => {
         {!error && !editable && nonEditableReason && <div className={style.readOnlyNotice}>{nonEditableReason}</div>}
         {pendingEditCount > 0 && <div className={style.editToolbar}>
           <span>{pendingEditCount} unsaved change{pendingEditCount === 1 ? '' : 's'}</span>
+          {editable && !hasPrimaryKey && <span className={style.noPkWarning}>No primary key set on this table - updates will match rows using all columns.</span>}
           {saveError && <span className={style.saveError}>{saveError}</span>}
           <button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button>
           <button type="button" disabled={saving} onClick={saveEdits}>{saving ? 'Saving...' : 'Save'}</button>

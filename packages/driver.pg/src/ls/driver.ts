@@ -324,8 +324,8 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     });
     const primaryKeys = metadata.rows.filter(column => column.isPk).map(column => column.column);
     const includedColumns = new Set(resolved.map(column => column.sourceColumn));
-    if (!primaryKeys.length) return { columnMeta: resolved, editable: false, nonEditableReason: 'Source table has no primary key.' };
-    if (!primaryKeys.every(column => includedColumns.has(column))) {
+    // no primary key: every mapped column is used to locate the row on save instead
+    if (primaryKeys.length && !primaryKeys.every(column => includedColumns.has(column))) {
       return { columnMeta: resolved, editable: false, nonEditableReason: 'Result must include every primary key column.' };
     }
     return { columnMeta: resolved, editable: true };
