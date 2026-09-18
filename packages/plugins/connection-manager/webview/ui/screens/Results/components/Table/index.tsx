@@ -66,19 +66,32 @@ const Table = ({ setContextState }) => {
 
   const saveEdits = useCallback(() => {
     if (saving || !pendingEditsRef.current.size || !editable) return;
-    const editsByRow = new Map<number, NSDatabase.IResultEdit>();
+    // group first: Tabulator mutates row data in place on edit, so by the time Save runs every
+    // edited cell's *new* value is already sitting in `rows` - the match condition must instead
+    // use each edited column's tracked pre-edit value, not the (already mutated) live row value
+    const editsByRowIndex = new Map<number, Map<string, { oldValue: any; newValue: any }>>();
     pendingEditsRef.current.forEach(edit => {
-      const source = columnMeta.find(column => column.name === edit.colname);
-      if (!source?.table || !source.sourceColumn || !source.schema) return;
-      const row = rows[edit.rowindex];
+      const rowEdits = editsByRowIndex.get(edit.rowindex) || new Map();
+      rowEdits.set(edit.colname, edit);
+      editsByRowIndex.set(edit.rowindex, rowEdits);
+    });
+    const editsByRow = new Map<number, NSDatabase.IResultEdit>();
+    editsByRowIndex.forEach((colEdits, rowindex) => {
+      const row = rows[rowindex];
+      const firstSource = columnMeta.find(column => colEdits.has(column.name));
+      if (!firstSource?.table || !firstSource.schema) return;
       const matchColumns = hasPrimaryKey ? columnMeta.filter(column => column.isPk) : columnMeta.filter(column => column.sourceColumn);
       const primaryKey = matchColumns.reduce((values, column) => {
-        values[column.sourceColumn] = row[column.name];
+        const pending = colEdits.get(column.name);
+        values[column.sourceColumn] = pending ? pending.oldValue : row[column.name];
         return values;
       }, {} as any);
-      const rowEdit = editsByRow.get(edit.rowindex) || { table: { label: source.table, schema: source.schema }, primaryKey, changes: {} };
-      rowEdit.changes[source.sourceColumn] = edit.newValue;
-      editsByRow.set(edit.rowindex, rowEdit);
+      const changes = {} as any;
+      colEdits.forEach((edit, colname) => {
+        const source = columnMeta.find(column => column.name === colname);
+        if (source?.sourceColumn) changes[source.sourceColumn] = edit.newValue;
+      });
+      editsByRow.set(rowindex, { table: { label: firstSource.table, schema: firstSource.schema }, primaryKey, changes });
     });
     const correlationId = `${Date.now()}-${Math.random()}`;
     const receiveResult = (event: MessageEvent) => {
