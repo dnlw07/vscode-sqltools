@@ -31,6 +31,7 @@ const Table = ({ setContextState }) => {
   const tableRef = useRef<any>(null);
   const activeCellRef = useRef<{ rowindex: number; colname: string } | null>(null);
   const pendingEditsRef = useRef(new Map<string, { rowindex: number; colname: string; oldValue: any; newValue: any }>());
+  const editingRef = useRef(false);
   const [selection, setSelection] = useState<number[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [hasFilters, setHasFilters] = useState(false);
@@ -83,6 +84,22 @@ const Table = ({ setContextState }) => {
     setSaveError(null);
     sendMessage(UIAction.CALL, { command: `${process.env.EXT_NAMESPACE}.applyResultEdits`, args: [[...editsByRow.values()], { requestId }], correlationId });
   }, [columnMeta, editable, requestId, rows, saving]);
+
+  // shared bookkeeping for both interactive edits and programmatic (paste) value changes
+  const applyEditToCell = useCallback((cell: any, colname: string) => {
+    const rowindex = rows.indexOf(cell.getRow().getData());
+    const key = `${rowindex}:${colname}`;
+    const existing = pendingEditsRef.current.get(key);
+    const oldValue = existing ? existing.oldValue : cell.getOldValue();
+    if (cell.getValue() === oldValue) {
+      pendingEditsRef.current.delete(key);
+      cell.getElement().classList.remove(style.dirtyCell);
+    } else {
+      pendingEditsRef.current.set(key, { rowindex, colname, oldValue, newValue: cell.getValue() });
+      cell.getElement().classList.add(style.dirtyCell);
+    }
+    setPendingEditCount(pendingEditsRef.current.size);
+  }, [rows]);
 
   const changePage = useCallback((nextPage: number) => {
     setContextState({ loading: true });
@@ -195,20 +212,8 @@ const Table = ({ setContextState }) => {
           headerSort: true,
           formatter: cell => displayValue(cell.getValue()),
           editor: editable && metadata?.editable ? 'input' : false,
-          cellEdited: cell => {
-            const rowindex = rows.indexOf(cell.getRow().getData());
-            const key = `${rowindex}:${column}`;
-            const existing = pendingEditsRef.current.get(key);
-            const oldValue = existing ? existing.oldValue : cell.getOldValue();
-            if (cell.getValue() === oldValue) {
-              pendingEditsRef.current.delete(key);
-              cell.getElement().classList.remove(style.dirtyCell);
-            } else {
-              pendingEditsRef.current.set(key, { rowindex, colname: column, oldValue, newValue: cell.getValue() });
-              cell.getElement().classList.add(style.dirtyCell);
-            }
-            setPendingEditCount(pendingEditsRef.current.size);
-          },
+          editorParams: { selectContents: true },
+          cellEdited: cell => applyEditToCell(cell, column),
         };
       }),
       layout: 'fitDataFill',
@@ -218,6 +223,9 @@ const Table = ({ setContextState }) => {
       selectableRangeColumns: true,
       selectableRangeRows: true,
       selectableRangeAutoFocus: true,
+      // Tabulator defaults to starting edit mode on cell *focus*, which fires as soon as a
+      // cell is selected/dragged for ranging - explicit dblclick trigger matches Excel behavior
+      editTriggerEvent: 'dblclick',
       clipboard: true,
       clipboardCopyRowRange: 'range',
       headerSortClickElement: 'icon',
@@ -279,6 +287,10 @@ const Table = ({ setContextState }) => {
         if (field) column.getElement().dataset.colname = field;
       });
     });
+    // tracked so a printable keystroke on a selected (non-editing) cell knows whether to start an overwrite edit
+    table.on('cellEditing', () => { editingRef.current = true; });
+    table.on('cellEdited', () => { editingRef.current = false; });
+    table.on('cellEditCancelled', () => { editingRef.current = false; });
     tableRef.current = table;
     return () => { table.destroy(); tableRef.current = null; };
   }, [cols, columnMeta, editable, error, result, rows]);
@@ -333,11 +345,86 @@ const Table = ({ setContextState }) => {
           const active = activeCellRef.current;
           clipboardInsert(rows[active.rowindex]?.[active.colname]);
         }
+      } else if (!editingRef.current && !event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1 && activeCellRef.current) {
+        // Excel-like overwrite: typing on a selected, non-editing cell replaces its content instead of appending to it
+        const { rowindex, colname } = activeCellRef.current;
+        if (!editable || !columnMeta.find(column => column.name === colname)?.editable) return;
+        const cell = tableRef.current?.getRows()?.[rowindex]?.getCell(colname);
+        if (!cell) return;
+        event.preventDefault();
+        cell.edit(true);
+        const input = cell.getElement().querySelector('input') as HTMLInputElement;
+        if (input) {
+          input.value = event.key;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
       }
     };
+
+    const onPaste = (event: ClipboardEvent) => {
+      if ((event.target as HTMLElement)?.matches('input, textarea') || !editable || !tableRef.current) return;
+      const text = event.clipboardData?.getData('text/plain');
+      if (!text) return;
+      const lines = text.replace(/\r/g, '').split('\n');
+      while (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+      const grid = lines.map(line => line.split('\t'));
+      if (!grid.length) return;
+
+      const ranges = tableRef.current.getRanges?.() || [];
+      const activeRange = ranges[ranges.length - 1];
+      const rangeRows = activeRange ? activeRange.getRows() : [];
+      const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
+      const allRows = tableRef.current.getRows();
+
+      let targetRows: any[];
+      let targetCols: string[];
+      if (rangeRows.length && rangeCols.length) {
+        targetRows = rangeRows;
+        targetCols = rangeCols;
+      } else if (activeCellRef.current) {
+        const row = allRows[activeCellRef.current.rowindex];
+        targetRows = row ? [row] : [];
+        targetCols = [activeCellRef.current.colname];
+      } else {
+        return;
+      }
+      if (!targetRows.length || !targetCols.length) return;
+      event.preventDefault();
+
+      const isEditableCol = (field: string) => columnMeta.find(column => column.name === field)?.editable;
+      const writeCell = (row: any, field: string, value: string) => {
+        if (!field || !isEditableCol(field)) return;
+        const cell = row.getCell(field);
+        if (cell && cell.getValue() !== value) {
+          cell.setValue(value);
+          applyEditToCell(cell, field);
+        }
+      };
+
+      if (grid.length === 1 && grid[0].length === 1 && (targetRows.length > 1 || targetCols.length > 1)) {
+        // pasting a single value over a multi-cell selection fills every cell, matching Excel's fill behavior
+        const value = grid[0][0];
+        targetRows.forEach(row => targetCols.forEach(field => writeCell(row, field, value)));
+        return;
+      }
+
+      const anchorRowIndex = allRows.indexOf(targetRows[0]);
+      const anchorColIndex = cols.indexOf(targetCols[0]);
+      grid.forEach((line, rOffset) => {
+        const row = allRows[anchorRowIndex + rOffset];
+        if (!row) return;
+        line.forEach((value, cOffset) => writeCell(row, cols[anchorColIndex + cOffset], value));
+      });
+    };
+
     document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [rows, getRangeExport, selectAllCells]);
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('paste', onPaste);
+    };
+  }, [rows, cols, columnMeta, editable, getRangeExport, selectAllCells, applyEditToCell]);
 
   if (!result) return null;
   return (
