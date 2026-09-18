@@ -24,6 +24,16 @@ function rowsToCSV(rows: any[], columns: string[]): string {
   return [columns.join(','), ...rows.map(row => columns.map(column => escape(row[column])).join(','))].join('\n');
 }
 
+// Standard spreadsheet clipboard format (tab-separated, no header row) so a plain Ctrl+C/Ctrl+V
+// round-trips correctly here and interoperates with Excel/Sheets/other grids.
+function rowsToTSV(rows: any[], columns: string[]): string {
+  const plain = (value: any) => {
+    const text = value == null ? '' : String(typeof value === 'object' ? JSON.stringify(value) : value);
+    return text.replace(/[\t\n]/g, ' ');
+  };
+  return rows.map(row => columns.map(column => plain(row[column])).join('\t')).join('\n');
+}
+
 const displayValue = (value: any) => value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
 
 const Table = ({ setContextState }) => {
@@ -226,8 +236,10 @@ const Table = ({ setContextState }) => {
       // Tabulator defaults to starting edit mode on cell *focus*, which fires as soon as a
       // cell is selected/dragged for ranging - explicit dblclick trigger matches Excel behavior
       editTriggerEvent: 'dblclick',
-      clipboard: true,
-      clipboardCopyRowRange: 'range',
+      // copy/paste are both handled manually below (own clipboard event + keyboard shortcuts);
+      // Tabulator's built-in clipboard module would otherwise run its own paste-as-insert
+      // handler in parallel and insert phantom rows from the same clipboard event
+      clipboard: false,
       headerSortClickElement: 'icon',
       cellMouseDown: (_event, cell) => {
         const rowindex = rows.indexOf(cell.getRow().getData());
@@ -340,7 +352,7 @@ const Table = ({ setContextState }) => {
         if (selectedRows.length === 1 && exportCols.length === 1) {
           clipboardInsert(selectedRows[0][exportCols[0]]);
         } else if (selectedRows.length && exportCols.length) {
-          clipboardInsert(rowsToCSV(selectedRows, exportCols));
+          clipboardInsert(rowsToTSV(selectedRows, exportCols));
         } else if (activeCellRef.current) {
           const active = activeCellRef.current;
           clipboardInsert(rows[active.rowindex]?.[active.colname]);
