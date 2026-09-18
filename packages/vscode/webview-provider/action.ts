@@ -1,5 +1,6 @@
 export const DefaultUIAction = {
   CALL: 'call' as const,
+  CALL_RESULT: 'call:result' as const,
 
   NOTIFY_VIEW_READY: 'NOTIFY:VIEW_READY' as const,
 

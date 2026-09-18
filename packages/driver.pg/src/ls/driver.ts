@@ -202,6 +202,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
       requestId: opt.requestId,
       resultId: generateId(),
       cols,
+      ...(await this.resolveResultEditability(data.fields || [], cols, cli)),
       results: this.mapRows(rows, cols),
       messages: [this.prepareMessage(message)],
       query: sql,
@@ -234,7 +235,6 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
 
         const startedAt = Date.now();
         const results = await cli.query({ text: rawSql, rowMode: 'array' });
-        cli.release();
         return { elapsed: Date.now() - startedAt, results };
       })
       .then((payload: { paginated: NSDatabase.IResult } | { elapsed: number, results: any[] | any }) => {
@@ -252,7 +252,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
           results = [results];
         }
 
-        return results.map((r, i): NSDatabase.IResult => {
+        return Promise.all(results.map(async (r, i): Promise<NSDatabase.IResult> => {
           const cols = this.getColumnNames(r.fields || []);
           const isSelect = r.command && r.command.toLowerCase() === 'select';
           const rowCount = typeof r.rowCount === 'number' ? r.rowCount : 0;
@@ -264,10 +264,14 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
             resultId: generateId(),
             connId: this.getId(),
             cols,
+            ...(await this.resolveResultEditability(r.fields || [], cols, cli)),
             messages: messages.concat([this.prepareMessage(outcome)]),
             query: queries[i],
             results: this.mapRows(r.rows, cols),
           };
+        })).then(mappedResults => {
+          cli.release();
+          return mappedResults;
         });
       })
       .catch(err => {
@@ -296,6 +300,66 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
       const count = names.filter((n) => n === name).length;
       return names.concat(count > 0 ? `${name} (${count})` : name);
     }, []);
+  }
+  
+  private async resolveResultEditability(fields: FieldDef[], cols: string[], client: PoolClient) {
+    const sourceFields = fields.filter(field => field.tableID && field.columnID);
+    if (!sourceFields.length) return { editable: false, nonEditableReason: 'Result does not contain physical table columns.' };
+    const tableIds = [...new Set(sourceFields.map(field => field.tableID))];
+    if (tableIds.length !== 1) return { editable: false, nonEditableReason: 'Result spans multiple tables.' };
+
+    const metadata = await client.query({
+      text: `SELECT a.attrelid::int AS "tableId", n.nspname AS schema, c.relname AS table, a.attnum::int AS "columnId", a.attname AS column,
+        EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)) AS "isPk"
+        FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped`,
+      values: [tableIds[0]],
+    });
+    const byAttribute = new Map(metadata.rows.map(column => [`${column.tableId}:${column.columnId}`, column]));
+    const resolved = fields.map((field, index) => {
+      const source = byAttribute.get(`${field.tableID}:${field.columnID}`);
+      return source
+        ? { name: cols[index], sourceColumn: source.column, table: source.table, schema: source.schema, isPk: source.isPk, editable: !source.isPk }
+        : { name: cols[index], editable: false };
+    });
+    const primaryKeys = metadata.rows.filter(column => column.isPk).map(column => column.column);
+    const includedColumns = new Set(resolved.map(column => column.sourceColumn));
+    if (!primaryKeys.length) return { columnMeta: resolved, editable: false, nonEditableReason: 'Source table has no primary key.' };
+    if (!primaryKeys.every(column => includedColumns.has(column))) {
+      return { columnMeta: resolved, editable: false, nonEditableReason: 'Result must include every primary key column.' };
+    }
+    return { columnMeta: resolved, editable: true };
+  }
+
+  public async applyEdits(edits: NSDatabase.IResultEdit[], _opt: IQueryOptions): Promise<NSDatabase.IResultEditResponse> {
+    if (!edits.length) return { success: true };
+    const quoteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
+    const client = await (await this.open()).connect();
+    try {
+      await client.query('BEGIN');
+      for (let index = 0; index < edits.length; index++) {
+        const { table, primaryKey, changes } = edits[index];
+        const changeColumns = Object.keys(changes);
+        const primaryKeyColumns = Object.keys(primaryKey);
+        if (!table?.label || !changeColumns.length || !primaryKeyColumns.length) throw new Error('Invalid edit request.');
+        const values = [...changeColumns.map(column => changes[column]), ...primaryKeyColumns.map(column => primaryKey[column])];
+        const setClause = changeColumns.map((column, valueIndex) => `${quoteIdentifier(column)} = $${valueIndex + 1}`).join(', ');
+        const whereClause = primaryKeyColumns.map((column, valueIndex) => `${quoteIdentifier(column)} IS NOT DISTINCT FROM $${changeColumns.length + valueIndex + 1}`).join(' AND ');
+        const relation = [table.schema, table.label].filter(Boolean).map(quoteIdentifier).join('.');
+        const result = await client.query({ text: `UPDATE ${relation} SET ${setClause} WHERE ${whereClause}`, values });
+        if (result.rowCount !== 1) {
+          await client.query('ROLLBACK');
+          return { success: false, failedIndex: index, error: 'Row was modified or deleted since it was loaded.' };
+        }
+      }
+      await client.query('COMMIT');
+      return { success: true };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      return { success: false, error: error.message || String(error) };
+    } finally {
+      client.release();
+    }
   }
 
   private mapRows(rows: any[], columns: string[]): any[] {

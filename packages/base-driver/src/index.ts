@@ -73,6 +73,9 @@ export default abstract class AbstractDriver<ConnectionType extends any, DriverO
 
     return this.query(this.queries.fetchRecords(params), opt);
   }
+  public async applyEdits(_edits: NSDatabase.IResultEdit[], _opt: IQueryOptions): Promise<NSDatabase.IResultEditResponse> {
+    throw new Error(`Editing result grids is not supported by ${this.credentials.driver}.`);
+  }
 
   public async checkDependencies() {
     if (!this.deps || this.deps.length === 0) return;

@@ -334,6 +334,10 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     return this.ext_executeQuery(await getSelectedText('execute file', true));
   }
 
+  private ext_applyResultEdits = async (edits: NSDatabase.IResultEdit[], opt: IQueryOptions = {}) => {
+    return this._runConnectionCommandWithArgs('applyEdits', edits, opt);
+  }
+
   private ext_showOutputChannel = async () => logger.show();
 
   private ext_saveResults = async (arg: (IQueryOptions & { formatType?: 'csv' | 'json' | 'prompt' }) | Uri = {}) => {
@@ -865,6 +869,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       .registerCommand(`executeQuery`, this.ext_executeQuery)
       .registerCommand(`executeCurrentQuery`, this.ext_executeCurrentQuery)
       .registerCommand(`executeQueryFromFile`, this.ext_executeQueryFromFile)
+      .registerCommand(`applyResultEdits`, this.ext_applyResultEdits)
       .registerCommand(`refreshTree`, this.ext_refreshTree)
       .registerCommand(`saveResults`, this.ext_saveResults)
       .registerCommand(`openResults`, this.ext_openResults)

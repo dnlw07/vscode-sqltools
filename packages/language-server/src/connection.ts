@@ -189,4 +189,11 @@ export default class Connection {
     if (typeof this.conn.getCompletionsForRawQuery !== 'function') return Promise.resolve(null);
     return this.conn.getCompletionsForRawQuery(text, currentOffset);
   }
+
+  public applyEdits(edits: NSDatabase.IResultEdit[], opt: IQueryOptions = {}) {
+    if (typeof this.conn.applyEdits !== 'function') {
+      return Promise.resolve({ success: false, error: `Editing result grids is not supported by ${this.getDriver()}.` });
+    }
+    return this.conn.applyEdits(edits, opt).catch(e => ({ success: false, error: e.message || String(e) }));
+  }
 }

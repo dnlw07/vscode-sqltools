@@ -8,6 +8,7 @@ import { clipboardInsert } from '../../../../lib/utils';
 import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
+import { NSDatabase } from '@sqltools/types';
 import 'tabulator-tables/dist/css/tabulator.css';
 import style from './style.m.scss';
 
@@ -29,11 +30,59 @@ const Table = ({ setContextState }) => {
   const tableElementRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<any>(null);
   const activeCellRef = useRef<{ rowindex: number; colname: string } | null>(null);
+  const pendingEditsRef = useRef(new Map<string, { rowindex: number; colname: string; oldValue: any; newValue: any }>());
   const [selection, setSelection] = useState<number[]>([]);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [hasFilters, setHasFilters] = useState(false);
+  const [pendingEditCount, setPendingEditCount] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { result } = useCurrentResult();
-  const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId } = result || {};
+  const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId, columnMeta = [], editable, nonEditableReason } = result || {};
+
+  const cancelEdits = useCallback(() => {
+    pendingEditsRef.current.forEach(edit => {
+      const cell = tableRef.current?.getRows()?.[edit.rowindex]?.getCell(edit.colname);
+      cell?.setValue(edit.oldValue, true);
+      cell?.getElement().classList.remove(style.dirtyCell);
+    });
+    pendingEditsRef.current.clear();
+    setPendingEditCount(0);
+    setSaveError(null);
+  }, []);
+
+  const saveEdits = useCallback(() => {
+    if (saving || !pendingEditsRef.current.size || !editable) return;
+    const editsByRow = new Map<number, NSDatabase.IResultEdit>();
+    pendingEditsRef.current.forEach(edit => {
+      const source = columnMeta.find(column => column.name === edit.colname);
+      if (!source?.table || !source.sourceColumn || !source.schema) return;
+      const row = rows[edit.rowindex];
+      const primaryKey = columnMeta.filter(column => column.isPk).reduce((values, column) => {
+        values[column.sourceColumn] = row[column.name];
+        return values;
+      }, {} as any);
+      const rowEdit = editsByRow.get(edit.rowindex) || { table: { label: source.table, schema: source.schema }, primaryKey, changes: {} };
+      rowEdit.changes[source.sourceColumn] = edit.newValue;
+      editsByRow.set(edit.rowindex, rowEdit);
+    });
+    const correlationId = `${Date.now()}-${Math.random()}`;
+    const receiveResult = (event: MessageEvent) => {
+      if (event.data?.action !== UIAction.CALL_RESULT || event.data?.payload?.correlationId !== correlationId) return;
+      window.removeEventListener('message', receiveResult);
+      const response = event.data.payload.result;
+      setSaving(false);
+      if (!response?.success) return setSaveError(response?.error || 'Unable to save changes.');
+      pendingEditsRef.current.forEach(edit => tableRef.current?.getRows()?.[edit.rowindex]?.getCell(edit.colname)?.getElement().classList.remove(style.dirtyCell));
+      pendingEditsRef.current.clear();
+      setPendingEditCount(0);
+      setSaveError(null);
+    };
+    window.addEventListener('message', receiveResult);
+    setSaving(true);
+    setSaveError(null);
+    sendMessage(UIAction.CALL, { command: `${process.env.EXT_NAMESPACE}.applyResultEdits`, args: [[...editsByRow.values()], { requestId }], correlationId });
+  }, [columnMeta, editable, requestId, rows, saving]);
 
   const changePage = useCallback((nextPage: number) => {
     setContextState({ loading: true });
@@ -137,7 +186,31 @@ const Table = ({ setContextState }) => {
     const widths = computeColumnWidths(cols, rows);
     const table = new Tabulator(tableElementRef.current, {
       data: rows,
-      columns: cols.map(column => ({ title: column, field: column, width: widths[column], headerSort: true, formatter: cell => displayValue(cell.getValue()) })),
+      columns: cols.map(column => {
+        const metadata = columnMeta.find(item => item.name === column);
+        return {
+          title: column,
+          field: column,
+          width: widths[column],
+          headerSort: true,
+          formatter: cell => displayValue(cell.getValue()),
+          editor: editable && metadata?.editable ? 'input' : false,
+          cellEdited: cell => {
+            const rowindex = rows.indexOf(cell.getRow().getData());
+            const key = `${rowindex}:${column}`;
+            const existing = pendingEditsRef.current.get(key);
+            const oldValue = existing ? existing.oldValue : cell.getOldValue();
+            if (cell.getValue() === oldValue) {
+              pendingEditsRef.current.delete(key);
+              cell.getElement().classList.remove(style.dirtyCell);
+            } else {
+              pendingEditsRef.current.set(key, { rowindex, colname: column, oldValue, newValue: cell.getValue() });
+              cell.getElement().classList.add(style.dirtyCell);
+            }
+            setPendingEditCount(pendingEditsRef.current.size);
+          },
+        };
+      }),
       layout: 'fitDataFill',
       height: '100%',
       rowHeader: { formatter: 'rownum', width: 46, frozen: true, hozAlign: 'center', headerSort: false },
@@ -208,7 +281,7 @@ const Table = ({ setContextState }) => {
     });
     tableRef.current = table;
     return () => { table.destroy(); tableRef.current = null; };
-  }, [cols, error, result, rows]);
+  }, [cols, columnMeta, editable, error, result, rows]);
 
   // reads the live Tabulator range (falling back to prior selection state) for keyboard export shortcuts
   const getRangeExport = useCallback(() => {
@@ -271,6 +344,13 @@ const Table = ({ setContextState }) => {
     <MenuProvider onOpen={onMenuOpen} getOptions={getMenuOptions} onSelect={onMenuSelect}>
       <Paper square elevation={0} className={`result ${style.tabulatorContainer}`}>
         {error ? <QueryError messages={messages} /> : <div ref={tableElementRef} className={style.tabulator} />}
+        {!error && !editable && nonEditableReason && <div className={style.readOnlyNotice}>{nonEditableReason}</div>}
+        {pendingEditCount > 0 && <div className={style.editToolbar}>
+          <span>{pendingEditCount} unsaved change{pendingEditCount === 1 ? '' : 's'}</span>
+          {saveError && <span className={style.saveError}>{saveError}</span>}
+          <button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button>
+          <button type="button" disabled={saving} onClick={saveEdits}>{saving ? 'Saving...' : 'Save'}</button>
+        </div>}
         {typeof page === 'number' && total > (pageSize ?? 50) && <div className={style.pagination}>
           <button type="button" disabled={page === 0} onClick={() => changePage(page - 1)}>Previous</button>
           <span>{page + 1}</span>

@@ -330,6 +330,7 @@ export interface IConnectionDriver {
    * Send a query to the SQL instance and receive the result
    */
   query(query: string, opt?: IQueryOptions): Promise<NSDatabase.IResult[]>;
+  applyEdits?(edits: NSDatabase.IResultEdit[], opt?: IQueryOptions): Promise<NSDatabase.IResultEditResponse>;
   testConnection?(): Promise<void>;
   /**
    * Get a list of interface elements, i.e. folders, tables, colums, etc.
@@ -492,6 +493,27 @@ export namespace NSDatabase {
     documentation: { kind: 'markdown', value: string };
   }
 
+  export interface IResultColumnMeta {
+    name: string;
+    sourceColumn?: string;
+    table?: string;
+    schema?: string;
+    isPk?: boolean;
+    editable: boolean;
+  }
+
+  export interface IResultEdit {
+    table: { label: string; schema?: string };
+    primaryKey: { [column: string]: any };
+    changes: { [column: string]: any };
+  }
+
+  export interface IResultEditResponse {
+    success: boolean;
+    error?: string;
+    failedIndex?: number;
+  }
+
   export interface IResult<T extends { [key: string]: any } = any> {
     /**
      * This id is unique for a single query result
@@ -521,6 +543,9 @@ export namespace NSDatabase {
     pageSize?: number;
     queryType?: 'showRecords' | 'describeTable' | 'executeQuery';
     queryParams?: string | { [k: string]: any };
+    columnMeta?: IResultColumnMeta[];
+    editable?: boolean;
+    nonEditableReason?: string;
   }
   export type SearchableItem = IDatabase | ISchema | ITable | IColumn | IFunction | IProcedure | MConnectionExplorer.IChildItem;
   export type ParentItem = IDatabase | ISchema | ITable;
@@ -935,7 +960,6 @@ export interface NodeDependency {
   env?: { [id: string]: string };
   args?: string[], // extra arguments to be passaged to packag managers
 }
-
 export interface ICommandEvent {
   command: string;
   args: any[];

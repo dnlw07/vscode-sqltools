@@ -57,6 +57,20 @@
   padding: 4px;
 }
 
+.editToolbar, .readOnlyNotice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--vscode-panel-border, #3b3b3b);
+  background: var(--vscode-editorWidget-background, #252526);
+  color: var(--vscode-editor-foreground, #cccccc);
+}
+
+.saveError { color: var(--vscode-errorForeground, #f48771); }
+
+.dirtyCell { background: var(--vscode-editorWarning-background, #5a4a1b) !important; }
+
 .tabulatorContainer {
   :global(.tabulator) {
     border: 1px solid var(--vscode-panel-border, #3b3b3b);

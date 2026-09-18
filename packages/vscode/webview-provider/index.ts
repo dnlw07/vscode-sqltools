@@ -104,7 +104,10 @@ export default abstract class WebviewProvider<State = any> implements Disposable
         this.lastState = payload;
         break;
       case DefaultUIAction.CALL:
-        return commands.executeCommand(payload.command, ...(payload.args || []));
+        return commands.executeCommand(payload.command, ...(payload.args || [])).then(
+          result => this.postMessage({ action: DefaultUIAction.CALL_RESULT, payload: { correlationId: payload.correlationId, result } }),
+          error => this.postMessage({ action: DefaultUIAction.CALL_RESULT, payload: { correlationId: payload.correlationId, result: { success: false, error: error.message || String(error) } } }),
+        );
       case DefaultUIAction.NOTIFY_VIEW_READY:
         process.env.NODE_ENV === 'development' &&
           commands.executeCommand('workbench.action.webview.openDeveloperTools');

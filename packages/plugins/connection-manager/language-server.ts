@@ -1,6 +1,6 @@
 import Connection from '@sqltools/language-server/src/connection';
 import ConfigRO from '@sqltools/util/config-manager';
-import { IConnection, NSDatabase, ILanguageServerPlugin, ILanguageServer, RequestHandler } from '@sqltools/types';
+import { IConnection, ILanguageServerPlugin, ILanguageServer, RequestHandler } from '@sqltools/types';
 import { getConnectionId, migrateConnectionSetting } from '@sqltools/util/connection';
 import csvStringify from 'csv-stringify/lib/sync';
 import { ConnectRequest, DisconnectRequest, SearchConnectionItemsRequest, GetConnectionPasswordRequest, GetConnectionsRequest, RunCommandRequest, GetResultsRequest, ProgressNotificationStart, ProgressNotificationComplete, TestConnectionRequest, GetChildrenForTreeItemRequest, ForceListRefresh, GetInsertQueryRequest, GetDefinitionQueryForItemRequest, ReleaseResultsRequest } from './contracts';
@@ -39,8 +39,11 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
     try {
       const c = await this.getConnectionInstance(conn);
       if (!c) throw 'Connection not found';
-      const results: NSDatabase.IResult[] = await c[command](...args);
-      await Handlers.QuerySuccess(results);
+      if (typeof c[command] !== 'function') throw `Command '${command}' is not supported by this connection`;
+      const results = await c[command](...args);
+      if (Array.isArray(results)) {
+        await Handlers.QuerySuccess(results);
+      }
       return results;
     } catch (e) {
       this.server.notifyError('Execute query error', e);
