@@ -152,6 +152,8 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
   }
 
   private async execPaginatedSelect(cli: PoolClient, sql: string, opt: IQueryOptions & { page?: number, pageSize?: number }): Promise<NSDatabase.IResult> {
+    // strip a trailing statement-terminating semicolon so it can be safely wrapped/appended to
+    sql = sql.replace(/;\s*$/, '');
     const pageSize = Math.max(1, Number(opt.pageSize) || Number(this.credentials.previewLimit) || 50);
     const page = Math.max(0, Number(opt.page) || 0);
     const offset = page * pageSize;
