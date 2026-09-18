@@ -22,6 +22,8 @@ export enum MenuActions {
   CopyRowOption = 'Copy Selected JSON Row(s)',
   CopySelectedCSV = 'Copy Selected as CSV',
   CopySelectedJSON = 'Copy Selected as JSON',
+  CopyAsInsert = 'Copy as Insert',
+  CopyAsUpdate = 'Copy as Update',
   SaveCSVOption = 'Save Results as CSV',
   SaveJSONOption = 'Save Results as JSON',
   OpenEditorWithValueOption = 'Open Editor With {contextAction}',

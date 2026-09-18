@@ -34,6 +34,41 @@ function rowsToTSV(rows: any[], columns: string[]): string {
   return rows.map(row => columns.map(column => plain(row[column])).join('\t')).join('\n');
 }
 
+function quoteIdentifier(name: string): string {
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+function formatSqlValue(value: any): string {
+  if (value === null || typeof value === 'undefined') return 'NULL';
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return `'${text.replace(/'/g, "''")}'`;
+}
+
+function rowsToInsertStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[]): string {
+  const mapped = columnMeta.filter(column => column.sourceColumn);
+  if (!mapped.length || !rows.length) return '';
+  const relation = [mapped[0].schema, mapped[0].table].filter(Boolean).map(quoteIdentifier).join('.');
+  const columnNames = mapped.map(column => quoteIdentifier(column.sourceColumn)).join(', ');
+  return rows.map(row => `INSERT INTO ${relation} (${columnNames}) VALUES (${mapped.map(column => formatSqlValue(row[column.name])).join(', ')});`).join('\n');
+}
+
+function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[], selectedColumnNames: string[]): string {
+  const mapped = columnMeta.filter(column => column.sourceColumn);
+  if (!mapped.length || !rows.length) return '';
+  const relation = [mapped[0].schema, mapped[0].table].filter(Boolean).map(quoteIdentifier).join('.');
+  const pkColumns = mapped.filter(column => column.isPk);
+  // no primary key: every mapped column is used to locate the row instead, matching the Save behavior
+  const whereColumns = pkColumns.length ? pkColumns : mapped;
+  const selected = mapped.filter(column => selectedColumnNames.includes(column.name));
+  const setColumns = (selected.length ? selected : mapped).filter(column => !pkColumns.includes(column));
+  return rows.map(row => {
+    const setClause = (setColumns.length ? setColumns : mapped).map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(', ');
+    const whereClause = whereColumns.map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(' AND ');
+    return `UPDATE ${relation} SET ${setClause} WHERE ${whereClause};`;
+  }).join('\n');
+}
+
 const displayValue = (value: any) => value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
 
 const Table = ({ setContextState }) => {
@@ -158,6 +193,11 @@ const Table = ({ setContextState }) => {
 
     if (indexes.length) groups.push([MenuActions.CopySelectedCSV, MenuActions.CopySelectedJSON]);
 
+    // requires a resolved source table (from columnMeta) to know what to INSERT INTO / UPDATE
+    if (indexes.length && columnMeta.some(column => column.table)) {
+      groups.push([MenuActions.CopyAsInsert, MenuActions.CopyAsUpdate]);
+    }
+
     const miscGroup: any[] = [];
     if (hasFilters) miscGroup.push(MenuActions.ClearFiltersOption);
     if (indexes.length > 1) miscGroup.push(MenuActions.ClearSelection);
@@ -169,12 +209,23 @@ const Table = ({ setContextState }) => {
       options.push(...group);
     });
     return options;
-  }, [cols, hasFilters, rows, selection]);
+  }, [cols, columnMeta, hasFilters, rows, selection]);
 
   const onMenuOpen = useCallback(({ rowindex, colname }) => {
     const index = Number(rowindex);
     if (Number.isNaN(index) || index < 0) return;
     if (colname) activeCellRef.current = { rowindex: index, colname };
+    // a right-click landing inside the already-selected range/row(s) must not collapse it down
+    // to just the clicked cell - only move the range when clicking outside the current selection
+    const ranges = tableRef.current?.getRanges?.() || [];
+    const activeRange = ranges[ranges.length - 1];
+    const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
+    const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
+    const clickIsInsideRange = activeRange && rangeRowIndexes.includes(index) && (!colname || rangeCols.includes(colname));
+    if (clickIsInsideRange) {
+      if (!selection.includes(index)) setSelection(rangeRowIndexes);
+      return;
+    }
     // replace the selection with the newly targeted row, unless it's already part of an existing multi-row selection
     if (!selection.includes(index)) setSelection([index]);
     // right-clicking a cell outside the current Tabulator range doesn't move that range on its own -
@@ -214,6 +265,8 @@ const Table = ({ setContextState }) => {
         const projected = selectedRows.map(row => exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any));
         return clipboardInsert(JSON.stringify(projected.length === 1 ? projected[0] : projected, null, 2));
       }
+      case MenuActions.CopyAsInsert: return clipboardInsert(rowsToInsertStatements(selectedRows, columnMeta));
+      case MenuActions.CopyAsUpdate: return clipboardInsert(rowsToUpdateStatements(selectedRows, columnMeta, exportCols));
       case MenuActions.ClearFiltersOption:
         tableRef.current?.clearFilter();
         setHasFilters(false);
@@ -222,7 +275,7 @@ const Table = ({ setContextState }) => {
         tableRef.current?.clearCellSelection();
         return setSelection([]);
     }
-  }, [cols, rows, selection, selectedColumns]);
+  }, [cols, columnMeta, rows, selection, selectedColumns]);
 
   useEffect(() => {
     if (!tableElementRef.current || error || !result) return undefined;
