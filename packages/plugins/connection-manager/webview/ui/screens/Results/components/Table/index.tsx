@@ -200,7 +200,6 @@ const Table = ({ setContextState }) => {
 
     const miscGroup: any[] = [];
     if (hasFilters) miscGroup.push(MenuActions.ClearFiltersOption);
-    if (indexes.length > 1) miscGroup.push(MenuActions.ClearSelection);
     if (miscGroup.length) groups.push(miscGroup);
 
     const options: any[] = [];
@@ -270,9 +269,6 @@ const Table = ({ setContextState }) => {
       case MenuActions.ClearFiltersOption:
         tableRef.current?.clearFilter();
         setHasFilters(false);
-        return setSelection([]);
-      case MenuActions.ClearSelection:
-        tableRef.current?.clearCellSelection();
         return setSelection([]);
     }
   }, [cols, columnMeta, rows, selection, selectedColumns]);
