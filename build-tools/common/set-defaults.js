@@ -1,7 +1,7 @@
 const webpack = require('webpack');
 const path = require('path');
 const TerserJSPlugin = require('terser-webpack-plugin');
-const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
+const CssMinimizerPlugin = require('css-minimizer-webpack-plugin');
 
 const basePlugins = require('./base-plugins');
 const { outdir, IS_PRODUCTION } = require('../constants');
@@ -31,7 +31,7 @@ module.exports = function setDefaults(config, includeDefaultPlugins = true) {
     config.optimization.minimize = true;
     config.optimization.minimizer = [
       new TerserJSPlugin({ terserOptions: { mangle: false, keep_classnames: true } }), // mangle false else mysql blow ups with "PROTOCOL_INCORRECT_PACKET_SEQUENCE"
-      new OptimizeCSSAssetsPlugin({})
+      new CssMinimizerPlugin()
     ]
   } else {
     config.optimization.minimize = false;
