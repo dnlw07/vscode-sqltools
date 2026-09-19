@@ -208,15 +208,15 @@
   }
 
   :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range) {
-    border-color: var(--vscode-focusBorder, #4aa3ff);
+    border-color: transparent;
   }
 
   :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range.tabulator-range-active::after) {
-    background-color: var(--vscode-focusBorder, #4aa3ff);
+    display: none;
   }
 
   :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active) {
-    border-color: var(--vscode-focusBorder, #4aa3ff);
+    border-color: transparent;
   }
 
   // Tabulator's range overlay starts at the table edge, but the row-number gutter is frozen.
