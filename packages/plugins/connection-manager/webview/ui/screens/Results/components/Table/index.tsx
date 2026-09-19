@@ -14,6 +14,7 @@ import style from './style.m.scss';
 
 const tabulatorModule = require('tabulator-tables');
 const Tabulator = tabulatorModule.default || tabulatorModule.TabulatorFull || tabulatorModule;
+const EMPTY_ARRAY: any[] = [];
 
 function rowsToCSV(rows: any[], columns: string[]): string {
   if (!rows.length) return '';
@@ -84,7 +85,7 @@ const Table = ({ setContextState }) => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { result } = useCurrentResult();
-  const { results: rows = [], cols = [], error, messages = [], page, pageSize, total, queryType, queryParams, requestId, columnMeta = [], editable, nonEditableReason } = result || {};
+  const { results: rows = EMPTY_ARRAY, cols = EMPTY_ARRAY, error, messages = EMPTY_ARRAY, page, pageSize, total, queryType, queryParams, requestId, columnMeta = EMPTY_ARRAY, editable, nonEditableReason } = result || {};
   // without a primary key, every mapped column's original value is used to locate the row on save
   const hasPrimaryKey = columnMeta.some(column => column.isPk);
 
@@ -232,7 +233,10 @@ const Table = ({ setContextState }) => {
     if (colname && tableRef.current) {
       const rowComponent = tableRef.current.getRows().find(row => row.getData() === rows[index]);
       const cell = rowComponent?.getCell(colname);
-      if (cell) tableRef.current.addRange(cell);
+      if (cell) {
+        tableRef.current.clearCellSelection();
+        tableRef.current.addRange(cell);
+      }
     }
   }, [selection, rows]);
 
