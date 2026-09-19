@@ -92,8 +92,10 @@
   }
 
   :global(.tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left),
-  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left) {
+  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left),
+  :global(.tabulator .tabulator-row .tabulator-cell.tabulator-frozen) {
     border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+    z-index: 13 !important;
   }
 
   :global(.tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-right),
@@ -104,6 +106,7 @@
   :global(.tabulator .tabulator-row .tabulator-cell.tabulator-row-header) {
     border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
     border-bottom: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
+    isolation: isolate;
   }
 
   :global(.tabulator .tabulator-header) {
@@ -152,7 +155,8 @@
   }
 
   :global(.tabulator .tabulator-row-header) {
-    background: var(--vscode-editorWidget-background, #2a2d30) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editorWidget-background, #2a2d30), var(--vscode-editorWidget-background, #2a2d30)) !important;
     color: var(--vscode-descriptionForeground, #858585) !important;
   }
 
@@ -166,34 +170,40 @@
   :global(.tabulator .tabulator-row.tabulator-selected .tabulator-row-header),
   :global(.tabulator .tabulator-cell.tabulator-selected),
   :global(.tabulator .tabulator-cell.tabulator-selected:hover) {
-    background: var(--vscode-editor-selectionBackground, #264f78);
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-selectionBackground, #264f78), var(--vscode-editor-selectionBackground, #264f78)) !important;
     color: var(--vscode-editor-selectionForeground, #ffffff);
   }
 
   // actual cell-range selection (selectableRange) uses tabulator-range-* classes, not tabulator-selected
   :global(.tabulator-row .tabulator-cell.tabulator-range-selected) {
-    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-selectionBackground, #264f78), var(--vscode-editor-selectionBackground, #264f78)) !important;
     color: var(--vscode-editor-selectionForeground, #ffffff) !important;
   }
 
   :global(.tabulator .tabulator-header .tabulator-col.tabulator-range-highlight) {
-    background: var(--vscode-editor-inactiveSelectionBackground, #3a3d41) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-inactiveSelectionBackground, #3a3d41), var(--vscode-editor-inactiveSelectionBackground, #3a3d41)) !important;
     color: var(--vscode-editor-foreground, #cccccc) !important;
   }
 
   :global(.tabulator .tabulator-header .tabulator-col.tabulator-range-selected) {
-    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-selectionBackground, #264f78), var(--vscode-editor-selectionBackground, #264f78)) !important;
     color: var(--vscode-editor-selectionForeground, #ffffff) !important;
   }
 
   :global(.tabulator-row.tabulator-range-highlight .tabulator-cell.tabulator-range-row-header) {
-    background: var(--vscode-editor-inactiveSelectionBackground, #3a3d41) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-inactiveSelectionBackground, #3a3d41), var(--vscode-editor-inactiveSelectionBackground, #3a3d41)) !important;
     color: var(--vscode-editor-foreground, #cccccc) !important;
   }
 
   :global(.tabulator-row.tabulator-range-highlight.tabulator-range-selected .tabulator-cell.tabulator-range-row-header),
   :global(.tabulator-row.tabulator-range-selected .tabulator-cell.tabulator-range-row-header) {
-    background: var(--vscode-editor-selectionBackground, #264f78) !important;
+    background-color: var(--vscode-editor-background, #1e1e1e) !important;
+    background-image: linear-gradient(var(--vscode-editor-selectionBackground, #264f78), var(--vscode-editor-selectionBackground, #264f78)) !important;
     color: var(--vscode-editor-selectionForeground, #ffffff) !important;
   }
 
@@ -207,6 +217,11 @@
 
   :global(.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active) {
     border-color: var(--vscode-focusBorder, #4aa3ff);
+  }
+
+  // Tabulator's range overlay starts at the table edge, but the row-number gutter is frozen.
+  :global(.tabulator .tabulator-tableholder .tabulator-range-overlay) {
+    clip-path: inset(0 0 0 46px);
   }
 
   :global(.tabulator .tabulator-footer) {
