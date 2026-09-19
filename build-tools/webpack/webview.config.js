@@ -128,6 +128,10 @@ module.exports = exports = function getWebviewConfig({ entries, packagePath }) {
           }
         : {}),
     },
+    performance: {
+      maxAssetSize: 2 * 1024 * 1024,
+      maxEntrypointSize: 2 * 1024 * 1024,
+    },
     plugins: [
       new MiniCssExtractPlugin({
         filename: 'ui/[name].css',

@@ -50,6 +50,9 @@ module.exports = function getNodeConfig({ entries, packagePath, externals = {} }
           }
         : {}),
     },
+    ignoreWarnings: [
+      warning => warning.message && warning.message.includes('require function is used in a way in which dependencies cannot be statically extracted'),
+    ],
   };
 
   return setDefaults(config);
