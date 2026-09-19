@@ -6,6 +6,7 @@ import fs from 'fs';
 import zipObject from 'lodash/zipObject';
 import { parse as queryParse } from '@sqltools/util/query';
 import generateId from '@sqltools/util/internal-id';
+import formatDuration from '@sqltools/util/duration';
 import { signAwsIamToken, validateIamAuthOptions } from './aws-iam';
 
 const rawValue = (v: string) => v;
@@ -192,10 +193,11 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     }
 
     const elapsed = Date.now() - startedAt;
+    const duration = formatDuration(elapsed);
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const message = exact
-      ? `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} of ${totalPages} (${total} total, ${pageSize}/page) in ${elapsed}ms.`
-      : `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} (${pageSize}/page) in ${elapsed}ms.`;
+      ? `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} of ${totalPages} (${total} total, ${pageSize}/page) in ${duration}.`
+      : `${rows.length} row${rows.length === 1 ? '' : 's'} shown - page ${page + 1} (${pageSize}/page) in ${duration}.`;
 
     return {
       connId: this.getId(),
@@ -247,6 +249,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
         }
 
         const { elapsed } = payload;
+        const duration = formatDuration(elapsed);
         let results = payload.results;
         if (!Array.isArray(results)) {
           results = [results];
@@ -257,8 +260,8 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
           const isSelect = r.command && r.command.toLowerCase() === 'select';
           const rowCount = typeof r.rowCount === 'number' ? r.rowCount : 0;
           const outcome = isSelect
-            ? `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} returned in ${elapsed}ms.`
-            : `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} affected in ${elapsed}ms.`;
+            ? `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} returned in ${duration}.`
+            : `${r.command} executed successfully. ${rowCount} row${rowCount === 1 ? '' : 's'} affected in ${duration}.`;
           return {
             requestId,
             resultId: generateId(),
