@@ -9,6 +9,7 @@ import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
 import { NSDatabase } from '@sqltools/types';
+import { normalizeEditedValue } from './normalizeEditedValue';
 import 'tabulator-tables/dist/css/tabulator.css';
 import style from './style.m.scss';
 
@@ -71,6 +72,39 @@ function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColum
 }
 
 const displayValue = (value: any) => value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+
+const typedInputEditor = (cell, onRendered, success, cancel) => {
+  const originalValue = cell.getValue();
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = originalValue == null ? '' : String(originalValue);
+  input.style.width = '100%';
+  input.style.height = '100%';
+  input.style.boxSizing = 'border-box';
+
+  let settled = false;
+  const commit = () => {
+    if (settled) return;
+    settled = true;
+    success(normalizeEditedValue(input.value, originalValue));
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commit();
+    }
+    if (event.key === 'Escape') {
+      settled = true;
+      cancel();
+    }
+  });
+  onRendered(() => {
+    input.focus();
+    input.select();
+  });
+  return input;
+};
 
 const Table = ({ setContextState }) => {
   const tableElementRef = useRef<HTMLDivElement>(null);
@@ -153,11 +187,12 @@ const Table = ({ setContextState }) => {
     const key = `${rowindex}:${colname}`;
     const existing = pendingEditsRef.current.get(key);
     const oldValue = existing ? existing.oldValue : cell.getOldValue();
-    if (cell.getValue() === oldValue) {
+    const newValue = normalizeEditedValue(cell.getValue(), oldValue);
+    if (newValue === oldValue) {
       pendingEditsRef.current.delete(key);
       cell.getElement().classList.remove(style.dirtyCell);
     } else {
-      pendingEditsRef.current.set(key, { rowindex, colname, oldValue, newValue: cell.getValue() });
+      pendingEditsRef.current.set(key, { rowindex, colname, oldValue, newValue });
       cell.getElement().classList.add(style.dirtyCell);
     }
     setPendingEditCount(pendingEditsRef.current.size);
@@ -290,8 +325,7 @@ const Table = ({ setContextState }) => {
           width: widths[column],
           headerSort: true,
           formatter: cell => displayValue(cell.getValue()),
-          editor: editable && metadata?.editable ? 'input' : false,
-          editorParams: { selectContents: true },
+          editor: editable && metadata?.editable ? typedInputEditor : false,
           cellEdited: cell => applyEditToCell(cell, column),
         };
       }),
@@ -477,8 +511,9 @@ const Table = ({ setContextState }) => {
       const writeCell = (row: any, field: string, value: string) => {
         if (!field || !isEditableCol(field)) return;
         const cell = row.getCell(field);
-        if (cell && cell.getValue() !== value) {
-          cell.setValue(value);
+        const normalizedValue = cell && normalizeEditedValue(value, cell.getValue());
+        if (cell && cell.getValue() !== normalizedValue) {
+          cell.setValue(normalizedValue);
           applyEditToCell(cell, field);
         }
       };
