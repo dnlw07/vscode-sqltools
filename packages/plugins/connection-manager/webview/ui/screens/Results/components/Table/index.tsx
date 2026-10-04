@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Paper from '@material-ui/core/Paper';
+import flatten from 'lodash/flatten';
 import { MenuActions } from '../../constants';
 import computeColumnWidths from './computeColumnWidths';
 import sendMessage from '../../../../lib/messages';
@@ -9,7 +10,7 @@ import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
 import { NSDatabase } from '@sqltools/types';
-import type { CellComponent, ColumnComponent, ColumnDefinition, Editor, RangeComponent, RowComponent, TabulatorFull } from 'tabulator-tables';
+import type { CellComponent, ColumnComponent, ColumnDefinition, Editor, RowComponent, TabulatorFull } from 'tabulator-tables';
 import { ResultsScreenState } from '../../interfaces';
 import { normalizeEditedValue } from './normalizeEditedValue';
 import 'tabulator-tables/dist/css/tabulator.css';
@@ -19,7 +20,7 @@ const tabulatorModule = require('tabulator-tables');
 const Tabulator = tabulatorModule.default || tabulatorModule.TabulatorFull || tabulatorModule;
 const EMPTY_ARRAY: any[] = [];
 
-type GridTable = TabulatorFull & { clearCellSelection: () => void };
+type GridTable = TabulatorFull;
 type SourceColumn = NSDatabase.IResultColumnMeta & { sourceColumn: string };
 
 const hasSourceColumn = (column: NSDatabase.IResultColumnMeta): column is SourceColumn => !!column.sourceColumn;
@@ -255,6 +256,25 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     return options;
   }, [cols, columnMeta, hasFilters, rows, selection]);
 
+  const getSelectedBlocks = useCallback(() => {
+    const blocks = (tableRef.current?.getRanges() || []).map(range => ({
+      selectedRows: range.getRows().map(row => row.getData()),
+      exportCols: range.getColumns().map(column => column.getField()).filter(Boolean),
+    })).filter(block => block.selectedRows.length && block.exportCols.length);
+    const merged: typeof blocks = [];
+    const columnOrder = (tableRef.current?.getColumns() || []).map(column => column.getField()).filter(Boolean);
+    blocks.forEach(block => {
+      const matching = merged.find(existing => existing.selectedRows.length === block.selectedRows.length &&
+        existing.selectedRows.every((row, index) => row === block.selectedRows[index]));
+      if (matching) {
+        matching.exportCols = columnOrder.filter(column => matching.exportCols.includes(column) || block.exportCols.includes(column));
+      } else {
+        merged.push({ ...block, exportCols: columnOrder.filter(column => block.exportCols.includes(column)) });
+      }
+    });
+    return merged;
+  }, []);
+
   const onMenuOpen = useCallback(({ rowindex, colname }) => {
     const index = Number(rowindex);
     if (Number.isNaN(index) || index < 0) return;
@@ -262,12 +282,11 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     // a right-click landing inside the already-selected range/row(s) must not collapse it down
     // to just the clicked cell - only move the range when clicking outside the current selection
     const ranges = tableRef.current?.getRanges?.() || [];
-    const activeRange = ranges[ranges.length - 1];
-    const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
-    const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
-    const clickIsInsideRange = activeRange && rangeRowIndexes.includes(index) && (!colname || rangeCols.includes(colname));
+    const clickIsInsideRange = ranges.some(range =>
+      range.getRows().some(row => row.getData() === rows[index]) &&
+      (!colname || range.getColumns().some(column => column.getField() === colname)),
+    );
     if (clickIsInsideRange) {
-      if (!selection.includes(index)) setSelection(rangeRowIndexes);
       return;
     }
     // replace the selection with the newly targeted row, unless it's already part of an existing multi-row selection
@@ -278,8 +297,13 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       const rowComponent = tableRef.current.getRows().find(row => row.getData() === rows[index]);
       const cell = rowComponent?.getCell(colname);
       if (cell) {
-        tableRef.current.clearCellSelection();
-        tableRef.current.addRange(cell, cell);
+        const ranges = tableRef.current.getRanges();
+        if (ranges.length) {
+          ranges.slice(1).forEach(range => range.remove());
+          ranges[0].setBounds(cell, cell);
+        } else {
+          tableRef.current.addRange(cell, cell);
+        }
       }
     }
   }, [selection, rows]);
@@ -298,6 +322,8 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     const indexes = clickIsInsideRange ? rangeRowIndexes : selection.includes(index) ? selection : [index];
     const selectedRows = indexes.map(rowIndex => rows[rowIndex]).filter(Boolean);
     const exportCols = clickIsInsideRange ? rangeCols : colname ? [colname] : selectedColumns.length ? selectedColumns : cols;
+    const blocks = getSelectedBlocks();
+    const exportBlocks = blocks.length ? blocks : [{ selectedRows, exportCols }];
     const value = (rows[index] || {})[colname];
     switch (choice) {
       case MenuActions.FilterByValueOption:
@@ -307,19 +333,19 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       case MenuActions.CopyCellOption: return clipboardInsert(value);
       case MenuActions.CopyColumnName: return clipboardInsert(colname);
       case MenuActions.CopyColumnNames: return clipboardInsert(cols.join(', '));
-      case MenuActions.CopySelectedCSV: return clipboardInsert(rowsToCSV(selectedRows, exportCols));
+      case MenuActions.CopySelectedCSV: return clipboardInsert(exportBlocks.map(block => rowsToCSV(block.selectedRows, block.exportCols)).join('\n'));
       case MenuActions.CopySelectedJSON: {
-        const projected = selectedRows.map(row => exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any));
+        const projected = flatten(exportBlocks.map(block => block.selectedRows.map(row => block.exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any))));
         return clipboardInsert(JSON.stringify(projected.length === 1 ? projected[0] : projected, null, 2));
       }
-      case MenuActions.CopyAsInsert: return clipboardInsert(rowsToInsertStatements(selectedRows, columnMeta));
-      case MenuActions.CopyAsUpdate: return clipboardInsert(rowsToUpdateStatements(selectedRows, columnMeta, exportCols));
+      case MenuActions.CopyAsInsert: return clipboardInsert(rowsToInsertStatements([...new Set(flatten(exportBlocks.map(block => block.selectedRows)))], columnMeta));
+      case MenuActions.CopyAsUpdate: return clipboardInsert(exportBlocks.map(block => rowsToUpdateStatements(block.selectedRows, columnMeta, block.exportCols)).join('\n'));
       case MenuActions.ClearFiltersOption:
         tableRef.current?.clearFilter(false);
         setHasFilters(false);
         return setSelection([]);
     }
-  }, [cols, columnMeta, rows, selection, selectedColumns]);
+  }, [cols, columnMeta, rows, selection, selectedColumns, getSelectedBlocks]);
 
   useEffect(() => {
     if (!tableElementRef.current || error || !result) return undefined;
@@ -341,7 +367,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       layout: 'fitDataFill',
       height: '100%',
       rowHeader: { formatter: 'rownum', width: 46, frozen: true, hozAlign: 'center', headerSort: false },
-      selectableRange: 1,
+      selectableRange: true,
       selectableRangeColumns: true,
       selectableRangeRows: true,
       // auto-focusing the default range on build pulls VS Code focus from the editor into the webview
@@ -397,13 +423,30 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
           element.dataset.colname = field;
         });
       },
-      rangeAdded: (range: RangeComponent) => {
-        const rowIndexes = range.getRows().map(row => rows.indexOf(row.getData()));
-        setSelection(rowIndexes.filter(index => index >= 0));
-        setSelectedColumns(range.getColumns().map(column => column.getField()).filter(Boolean));
-      },
-      rangeRemoved: () => { setSelection([]); setSelectedColumns([]); },
     });
+    const syncSelection = () => {
+      const ranges = table.getRanges();
+      setSelection([...new Set(flatten(ranges.map(range => range.getRows().map(row => rows.indexOf(row.getData())))))].filter(index => index >= 0));
+      setSelectedColumns([...new Set(flatten(ranges.map(range => range.getColumns().map(column => column.getField()))))].filter(Boolean));
+    };
+    table.on('rangeAdded', syncSelection);
+    table.on('rangeChanged', syncSelection);
+    table.on('rangeRemoved', syncSelection);
+    const gridElement = tableElementRef.current;
+    const preserveContextSelection = (event: MouseEvent) => {
+      if (event.button !== 2) return;
+      const target = event.target as HTMLElement;
+      const cell = target.closest<HTMLElement>('.tabulator-cell');
+      const rowindex = cell?.dataset.rowindex;
+      const colname = cell?.dataset.colname;
+      const selected = table.getRanges().some(range => cell
+        ? rowindex !== undefined && range.getRows().some(row => row.getData() === rows[Number(rowindex)]) &&
+          (!colname || range.getColumns().some(column => column.getField() === colname))
+        : range.getColumns().some(column => column.getElement().contains(target)),
+      );
+      if (selected) event.stopPropagation();
+    };
+    gridElement.addEventListener('mousedown', preserveContextSelection, true);
     // dataset must be set at render time, not only reactively on the headerContext event,
     // since that event has proven unreliable for the very first right-click on a header
     table.on('tableBuilt', () => {
@@ -417,20 +460,12 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     table.on('cellEdited', () => { editingRef.current = false; });
     table.on('cellEditCancelled', () => { editingRef.current = false; });
     tableRef.current = table;
-    return () => { table.destroy(); tableRef.current = null; };
+    return () => {
+      gridElement.removeEventListener('mousedown', preserveContextSelection, true);
+      table.destroy();
+      tableRef.current = null;
+    };
   }, [cols, columnMeta, editable, error, result, rows]);
-
-  // reads the live Tabulator range (falling back to prior selection state) for keyboard export shortcuts
-  const getRangeExport = useCallback(() => {
-    const ranges = tableRef.current?.getRanges?.() || [];
-    const activeRange = ranges[ranges.length - 1];
-    const rangeRowIndexes = activeRange ? activeRange.getRows().map(row => rows.indexOf(row.getData())).filter(i => i >= 0) : [];
-    const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
-    const indexes = rangeRowIndexes.length ? rangeRowIndexes : selection;
-    const exportCols = rangeCols.length ? rangeCols : selectedColumns.length ? selectedColumns : cols;
-    const selectedRows = indexes.map(rowIndex => rows[rowIndex]).filter(Boolean);
-    return { selectedRows, exportCols };
-  }, [rows, cols, selection, selectedColumns]);
 
   const selectAllCells = useCallback(() => {
     const table = tableRef.current;
@@ -440,7 +475,15 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     if (!rowComponents.length || !columnComponents.length) return;
     const firstCell = rowComponents[0].getCell(columnComponents[0].getField());
     const lastCell = rowComponents[rowComponents.length - 1].getCell(columnComponents[columnComponents.length - 1].getField());
-    if (firstCell && lastCell) table.addRange(firstCell, lastCell);
+    if (firstCell && lastCell) {
+      const ranges = table.getRanges();
+      if (ranges.length) {
+        ranges.slice(1).forEach(range => range.remove());
+        ranges[0].setBounds(firstCell, lastCell);
+      } else {
+        table.addRange(firstCell, lastCell);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -459,21 +502,21 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       if ((event.target as HTMLElement)?.matches('input, textarea')) return;
       const key = event.key.toLowerCase();
       if (event.key === 'Escape') {
-        tableRef.current?.clearCellSelection();
+        tableRef.current?.getRanges().forEach(range => range.remove());
         setSelection([]);
       } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 'c') {
         event.preventDefault();
-        const { selectedRows, exportCols } = getRangeExport();
-        if (!selectedRows.length || !exportCols.length) return;
-        const projected = selectedRows.map(row => exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any));
+        const blocks = getSelectedBlocks();
+        if (!blocks.length) return;
+        const projected = flatten(blocks.map(block => block.selectedRows.map(row => block.exportCols.reduce((acc, column) => { acc[column] = row[column]; return acc; }, {} as any))));
         clipboardInsert(JSON.stringify(projected.length === 1 ? projected[0] : projected, null, 2));
       } else if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'c' && !window.getSelection()?.toString()) {
         event.preventDefault();
-        const { selectedRows, exportCols } = getRangeExport();
-        if (selectedRows.length === 1 && exportCols.length === 1) {
-          clipboardInsert(selectedRows[0][exportCols[0]]);
-        } else if (selectedRows.length && exportCols.length) {
-          clipboardInsert(rowsToTSV(selectedRows, exportCols));
+        const blocks = getSelectedBlocks();
+        if (blocks.length === 1 && blocks[0].selectedRows.length === 1 && blocks[0].exportCols.length === 1) {
+          clipboardInsert(blocks[0].selectedRows[0][blocks[0].exportCols[0]]);
+        } else if (blocks.length) {
+          clipboardInsert(blocks.map(block => rowsToTSV(block.selectedRows, block.exportCols)).join('\n'));
         } else if (activeCellRef.current) {
           const active = activeCellRef.current;
           clipboardInsert(rows[active.rowindex]?.[active.colname]);
@@ -536,10 +579,30 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
         }
       };
 
-      if (grid.length === 1 && grid[0].length === 1 && (targetRows.length > 1 || targetCols.length > 1)) {
+      if (grid.length === 1 && grid[0].length === 1) {
         // pasting a single value over a multi-cell selection fills every cell, matching Excel's fill behavior
         const value = grid[0][0];
-        targetRows.forEach(row => targetCols.forEach(field => writeCell(row, field, value)));
+        if (ranges.length) {
+          ranges.forEach(range => range.getRows().forEach(row => range.getColumns().forEach(column => writeCell(row, column.getField(), value))));
+        } else {
+          targetRows.forEach(row => targetCols.forEach(field => writeCell(row, field, value)));
+        }
+        return;
+      }
+
+      if (ranges.length > 1) {
+        ranges.forEach(range => {
+          const selectedRows = range.getRows();
+          const selectedColumns = range.getColumns().filter(column => column.getField());
+          grid.forEach((line, rowOffset) => {
+            const row = selectedRows[rowOffset];
+            if (!row) return;
+            line.forEach((value, columnOffset) => {
+              const column = selectedColumns[columnOffset];
+              if (column) writeCell(row, column.getField(), value);
+            });
+          });
+        });
         return;
       }
 
@@ -560,7 +623,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('paste', onPaste);
     };
-  }, [rows, cols, columnMeta, editable, getRangeExport, selectAllCells, applyEditToCell]);
+  }, [rows, cols, columnMeta, editable, getSelectedBlocks, selectAllCells, applyEditToCell]);
 
   if (!result) return null;
   return (
