@@ -131,6 +131,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
   const { results: rows = EMPTY_ARRAY, cols = EMPTY_ARRAY, error, messages = EMPTY_ARRAY, page, pageSize, total = 0, queryType, queryParams, requestId, columnMeta = EMPTY_ARRAY, editable, nonEditableReason } = result || {};
   // without a primary key, every mapped column's original value is used to locate the row on save
   const hasPrimaryKey = columnMeta.some(column => column.isPk);
+  const hasPendingPrimaryKeyEdit = [...pendingEditsRef.current.values()].some(edit => columnMeta.some(column => column.name === edit.colname && column.isPk));
 
   const cancelEdits = useCallback(() => {
     pendingEditsRef.current.forEach(edit => {
@@ -634,6 +635,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
         {pendingEditCount > 0 && <div className={style.editToolbar}>
           <span>{pendingEditCount} unsaved change{pendingEditCount === 1 ? '' : 's'}</span>
           {editable && !hasPrimaryKey && <span className={style.noPkWarning}>No primary key set on this table - updates will match rows using all columns.</span>}
+          {hasPendingPrimaryKeyEdit && <span className={style.noPkWarning}>Primary key values are being changed. Ensure the new values are unique.</span>}
           {saveError && <span className={style.saveError}>{saveError}</span>}
           <button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button>
           <button type="button" disabled={saving} onClick={saveEdits}>{saving ? 'Saving...' : 'Save'}</button>

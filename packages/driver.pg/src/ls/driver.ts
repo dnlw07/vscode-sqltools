@@ -322,7 +322,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     const resolved = fields.map((field, index) => {
       const source = byAttribute.get(`${field.tableID}:${field.columnID}`);
       return source
-        ? { name: cols[index], sourceColumn: source.column, table: source.table, schema: source.schema, isPk: source.isPk, editable: !source.isPk }
+        ? { name: cols[index], sourceColumn: source.column, table: source.table, schema: source.schema, isPk: source.isPk, editable: true }
         : { name: cols[index], editable: false };
     });
     const primaryKeys = metadata.rows.filter(column => column.isPk).map(column => column.column);
