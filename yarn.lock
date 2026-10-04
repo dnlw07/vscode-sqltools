@@ -2772,6 +2772,11 @@
   resolved "https://registry.npmjs.org/@types/stack-utils/-/stack-utils-2.0.0.tgz"
   integrity sha512-RJJrrySY7A8havqpGObOB4W92QXKJo63/jFLLgpvOtsGUqbQZ9Sbgl35KMm1DjC6j7AvmmU2bIno+3IyEaemaw==
 
+"@types/tabulator-tables@^6.3.6":
+  version "6.3.6"
+  resolved "https://registry.npmjs.org/@types/tabulator-tables/-/tabulator-tables-6.3.6.tgz#945b95284839d56de99a5e1f96bd046ea6e6676a"
+  integrity sha512-H4xtYl8Dy/g4SrNnZx+oEK/N5+FLLEGTuU3MM7bpUUk3gtYy5aYqSjxQ1pqITnQ/PKHqV1aD4Zd5xels9AnPSA==
+
 "@types/tedious@*":
   version "4.0.1"
   resolved "https://registry.npmjs.org/@types/tedious/-/tedious-4.0.1.tgz"

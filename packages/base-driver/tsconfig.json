@@ -13,6 +13,7 @@
     "sourceMap": false,
     "declaration": true,
     "target": "es6",
+    "rootDir": "./src",
     "outDir": "./dist"
   },
   "include": [

@@ -9,6 +9,8 @@ import QueryError from '../QueryError';
 import { MenuProvider } from '../../context/MenuContext';
 import useCurrentResult from '../../hooks/useCurrentResult';
 import { NSDatabase } from '@sqltools/types';
+import type { CellComponent, ColumnComponent, ColumnDefinition, Editor, RangeComponent, RowComponent, TabulatorFull } from 'tabulator-tables';
+import { ResultsScreenState } from '../../interfaces';
 import { normalizeEditedValue } from './normalizeEditedValue';
 import 'tabulator-tables/dist/css/tabulator.css';
 import style from './style.m.scss';
@@ -16,6 +18,12 @@ import style from './style.m.scss';
 const tabulatorModule = require('tabulator-tables');
 const Tabulator = tabulatorModule.default || tabulatorModule.TabulatorFull || tabulatorModule;
 const EMPTY_ARRAY: any[] = [];
+
+type GridTable = TabulatorFull & { clearCellSelection: () => void };
+type SourceColumn = NSDatabase.IResultColumnMeta & { sourceColumn: string };
+
+const hasSourceColumn = (column: NSDatabase.IResultColumnMeta): column is SourceColumn => !!column.sourceColumn;
+const isIdentifier = (name: string | undefined): name is string => !!name;
 
 function rowsToCSV(rows: any[], columns: string[]): string {
   if (!rows.length) return '';
@@ -48,17 +56,17 @@ function formatSqlValue(value: any): string {
 }
 
 function rowsToInsertStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[]): string {
-  const mapped = columnMeta.filter(column => column.sourceColumn);
+  const mapped = columnMeta.filter(hasSourceColumn);
   if (!mapped.length || !rows.length) return '';
-  const relation = [mapped[0].schema, mapped[0].table].filter(Boolean).map(quoteIdentifier).join('.');
+  const relation = [mapped[0].schema, mapped[0].table].filter(isIdentifier).map(quoteIdentifier).join('.');
   const columnNames = mapped.map(column => quoteIdentifier(column.sourceColumn)).join(', ');
   return rows.map(row => `INSERT INTO ${relation} (${columnNames}) VALUES (${mapped.map(column => formatSqlValue(row[column.name])).join(', ')});`).join('\n');
 }
 
 function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[], selectedColumnNames: string[]): string {
-  const mapped = columnMeta.filter(column => column.sourceColumn);
+  const mapped = columnMeta.filter(hasSourceColumn);
   if (!mapped.length || !rows.length) return '';
-  const relation = [mapped[0].schema, mapped[0].table].filter(Boolean).map(quoteIdentifier).join('.');
+  const relation = [mapped[0].schema, mapped[0].table].filter(isIdentifier).map(quoteIdentifier).join('.');
   const pkColumns = mapped.filter(column => column.isPk);
   // no primary key: every mapped column is used to locate the row instead, matching the Save behavior
   const whereColumns = pkColumns.length ? pkColumns : mapped;
@@ -73,7 +81,7 @@ function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColum
 
 const displayValue = (value: any) => value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
 
-const typedInputEditor = (cell, onRendered, success, cancel) => {
+const typedInputEditor: Extract<Editor, (...args: any[]) => any> = (cell, onRendered, success, cancel) => {
   const originalValue = cell.getValue();
   const input = document.createElement('input');
   input.type = 'text';
@@ -96,7 +104,7 @@ const typedInputEditor = (cell, onRendered, success, cancel) => {
     }
     if (event.key === 'Escape') {
       settled = true;
-      cancel();
+      cancel(undefined);
     }
   });
   onRendered(() => {
@@ -106,9 +114,9 @@ const typedInputEditor = (cell, onRendered, success, cancel) => {
   return input;
 };
 
-const Table = ({ setContextState }) => {
+const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsScreenState>) => void }) => {
   const tableElementRef = useRef<HTMLDivElement>(null);
-  const tableRef = useRef<any>(null);
+  const tableRef = useRef<GridTable | null>(null);
   const activeCellRef = useRef<{ rowindex: number; colname: string } | null>(null);
   const pendingEditsRef = useRef(new Map<string, { rowindex: number; colname: string; oldValue: any; newValue: any }>());
   const editingRef = useRef(false);
@@ -119,7 +127,7 @@ const Table = ({ setContextState }) => {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { result } = useCurrentResult();
-  const { results: rows = EMPTY_ARRAY, cols = EMPTY_ARRAY, error, messages = EMPTY_ARRAY, page, pageSize, total, queryType, queryParams, requestId, columnMeta = EMPTY_ARRAY, editable, nonEditableReason } = result || {};
+  const { results: rows = EMPTY_ARRAY, cols = EMPTY_ARRAY, error, messages = EMPTY_ARRAY, page, pageSize, total = 0, queryType, queryParams, requestId, columnMeta = EMPTY_ARRAY, editable, nonEditableReason } = result || {};
   // without a primary key, every mapped column's original value is used to locate the row on save
   const hasPrimaryKey = columnMeta.some(column => column.isPk);
 
@@ -152,6 +160,7 @@ const Table = ({ setContextState }) => {
       if (!firstSource?.table || !firstSource.schema) return;
       const matchColumns = hasPrimaryKey ? columnMeta.filter(column => column.isPk) : columnMeta.filter(column => column.sourceColumn);
       const primaryKey = matchColumns.reduce((values, column) => {
+        if (!column.sourceColumn) return values;
         const pending = colEdits.get(column.name);
         values[column.sourceColumn] = pending ? pending.oldValue : row[column.name];
         return values;
@@ -270,7 +279,7 @@ const Table = ({ setContextState }) => {
       const cell = rowComponent?.getCell(colname);
       if (cell) {
         tableRef.current.clearCellSelection();
-        tableRef.current.addRange(cell);
+        tableRef.current.addRange(cell, cell);
       }
     }
   }, [selection, rows]);
@@ -306,7 +315,7 @@ const Table = ({ setContextState }) => {
       case MenuActions.CopyAsInsert: return clipboardInsert(rowsToInsertStatements(selectedRows, columnMeta));
       case MenuActions.CopyAsUpdate: return clipboardInsert(rowsToUpdateStatements(selectedRows, columnMeta, exportCols));
       case MenuActions.ClearFiltersOption:
-        tableRef.current?.clearFilter();
+        tableRef.current?.clearFilter(false);
         setHasFilters(false);
         return setSelection([]);
     }
@@ -315,9 +324,9 @@ const Table = ({ setContextState }) => {
   useEffect(() => {
     if (!tableElementRef.current || error || !result) return undefined;
     const widths = computeColumnWidths(cols, rows);
-    const table = new Tabulator(tableElementRef.current, {
+    const table: GridTable = new Tabulator(tableElementRef.current, {
       data: rows,
-      columns: cols.map(column => {
+      columns: cols.map((column): ColumnDefinition => {
         const metadata = columnMeta.find(item => item.name === column);
         return {
           title: column,
@@ -325,7 +334,7 @@ const Table = ({ setContextState }) => {
           width: widths[column],
           headerSort: true,
           formatter: cell => displayValue(cell.getValue()),
-          editor: editable && metadata?.editable ? typedInputEditor : false,
+          editor: editable && metadata?.editable ? typedInputEditor : undefined,
           cellEdited: cell => applyEditToCell(cell, column),
         };
       }),
@@ -344,7 +353,7 @@ const Table = ({ setContextState }) => {
       // handler in parallel and insert phantom rows from the same clipboard event
       clipboard: false,
       headerSortClickElement: 'icon',
-      cellMouseDown: (_event, cell) => {
+      cellMouseDown: (_event: MouseEvent, cell: CellComponent) => {
         const rowindex = rows.indexOf(cell.getRow().getData());
         const colname = cell.getColumn().getField();
         cell.getElement().dataset.rowindex = String(rowindex);
@@ -355,7 +364,7 @@ const Table = ({ setContextState }) => {
           delete cell.getElement().dataset.colname;
         }
       },
-      cellContext: (_event, cell) => {
+      cellContext: (_event: MouseEvent, cell: CellComponent) => {
         const element = cell.getElement();
         const colname = cell.getColumn().getField();
         element.dataset.rowindex = String(rows.indexOf(cell.getRow().getData()));
@@ -365,7 +374,7 @@ const Table = ({ setContextState }) => {
           delete element.dataset.colname;
         }
       },
-      headerContext: (_event, column) => {
+      headerContext: (_event: MouseEvent, column: ColumnComponent) => {
         const element = column.getElement();
         const colname = column.getField();
         if (colname) {
@@ -374,7 +383,7 @@ const Table = ({ setContextState }) => {
           delete element.dataset.colname;
         }
       },
-      rowFormatter: row => {
+      rowFormatter: (row: RowComponent) => {
         // dataset must be set at render time, not only on click, so the first right-click on any cell already has full context
         const rowindex = String(rows.indexOf(row.getData()));
         const rowHeader = row.getElement().querySelector('.tabulator-row-header') as HTMLElement;
@@ -387,7 +396,7 @@ const Table = ({ setContextState }) => {
           element.dataset.colname = field;
         });
       },
-      rangeAdded: range => {
+      rangeAdded: (range: RangeComponent) => {
         const rowIndexes = range.getRows().map(row => rows.indexOf(row.getData()));
         setSelection(rowIndexes.filter(index => index >= 0));
         setSelectedColumns(range.getColumns().map(column => column.getField()).filter(Boolean));
@@ -425,7 +434,7 @@ const Table = ({ setContextState }) => {
   const selectAllCells = useCallback(() => {
     const table = tableRef.current;
     if (!table) return;
-    const rowComponents = table.getRows();
+    const rowComponents = table.getRows('active');
     const columnComponents = table.getColumns().filter(column => column.getField());
     if (!rowComponents.length || !columnComponents.length) return;
     const firstCell = rowComponents[0].getCell(columnComponents[0].getField());
@@ -434,15 +443,23 @@ const Table = ({ setContextState }) => {
   }, []);
 
   useEffect(() => {
+    const onSelectAll = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'a') return;
+      if (!tableElementRef.current?.contains(target)) return;
+      if (target.closest('input, textarea, [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      window.getSelection()?.removeAllRanges();
+      selectAllCells();
+    };
+
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.target as HTMLElement)?.matches('input, textarea')) return;
       const key = event.key.toLowerCase();
       if (event.key === 'Escape') {
         tableRef.current?.clearCellSelection();
         setSelection([]);
-      } else if ((event.ctrlKey || event.metaKey) && key === 'a') {
-        event.preventDefault();
-        selectAllCells();
       } else if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 'c') {
         event.preventDefault();
         const { selectedRows, exportCols } = getRangeExport();
@@ -492,7 +509,7 @@ const Table = ({ setContextState }) => {
       const rangeCols = activeRange ? activeRange.getColumns().map(column => column.getField()).filter(Boolean) : [];
       const allRows = tableRef.current.getRows();
 
-      let targetRows: any[];
+      let targetRows: RowComponent[];
       let targetCols: string[];
       if (rangeRows.length && rangeCols.length) {
         targetRows = rangeRows;
@@ -534,9 +551,11 @@ const Table = ({ setContextState }) => {
       });
     };
 
+    document.addEventListener('keydown', onSelectAll, true);
     document.addEventListener('keydown', onKeyDown);
     document.addEventListener('paste', onPaste);
     return () => {
+      document.removeEventListener('keydown', onSelectAll, true);
       document.removeEventListener('keydown', onKeyDown);
       document.removeEventListener('paste', onPaste);
     };
