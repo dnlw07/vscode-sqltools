@@ -213,7 +213,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
     setContextState({ loading: true });
     sendMessage(UIAction.CALL, {
       command: `${process.env.EXT_NAMESPACE}.${queryType}`,
-      args: [queryParams, { page: nextPage, pageSize: pageSize ?? 50, requestId }],
+      args: [queryParams, { page: nextPage, pageSize: pageSize ?? 100, requestId }],
     });
   }, [pageSize, queryParams, queryType, requestId, setContextState]);
 
@@ -640,10 +640,10 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
           <button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button>
           <button type="button" disabled={saving} onClick={saveEdits}>{saving ? 'Saving...' : 'Save'}</button>
         </div>}
-        {typeof page === 'number' && total > (pageSize ?? 50) && <div className={style.pagination}>
+        {typeof page === 'number' && total > (pageSize ?? 100) && <div className={style.pagination}>
           <button type="button" disabled={page === 0} onClick={() => changePage(page - 1)}>Previous</button>
           <span>{page + 1}</span>
-          <button type="button" disabled={(page + 1) * (pageSize ?? 50) >= total} onClick={() => changePage(page + 1)}>Next</button>
+          <button type="button" disabled={(page + 1) * (pageSize ?? 100) >= total} onClick={() => changePage(page + 1)}>Next</button>
         </div>}
       </Paper>
     </MenuProvider>

@@ -155,7 +155,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
   private async execPaginatedSelect(cli: PoolClient, sql: string, opt: IQueryOptions & { page?: number, pageSize?: number }): Promise<NSDatabase.IResult> {
     // strip a trailing statement-terminating semicolon so it can be safely wrapped/appended to
     sql = sql.replace(/;\s*$/, '');
-    const pageSize = Math.max(1, Number(opt.pageSize) || Number(this.credentials.previewLimit) || 50);
+    const pageSize = Math.max(1, Number(opt.pageSize) || Number(this.credentials.previewLimit) || 100);
     const page = Math.max(0, Number(opt.page) || 0);
     const offset = page * pageSize;
     const cacheKey = `${opt.requestId || ''} ${sql}`;
@@ -512,7 +512,10 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
       case ContextValue.TABLE:
       case ContextValue.VIEW:
       // case ContextValue.MATERIALIZED_VIEW:
-        return this.queryResults(this.queries.searchTables({ search }));
+        return this.queryResults(this.queries.searchTables({ search, ...extraParams }));
+      case ContextValue.DATABASE:
+      case ContextValue.SCHEMA:
+        return this.queryResults(this.queries.searchSchemas({ search }));
       case ContextValue.COLUMN:
         return this.queryResults(this.queries.searchColumns({ search, ...extraParams }));
       case ContextValue.FUNCTION:

@@ -115,14 +115,28 @@ SELECT
 FROM INFORMATION_SCHEMA.TABLES AS T
 WHERE
   T.TABLE_SCHEMA !~ '^pg_'
-  AND T.TABLE_SCHEMA <> 'information_schema'
-  ${p => p.search ? `AND (
+  AND T.TABLE_SCHEMA <> 'information_schema'  ${(p: any) => p.database ? `AND (T.TABLE_SCHEMA = '${String(p.database).replace(/'/g, "''")}' OR T.TABLE_CATALOG = '${String(p.database).replace(/'/g, "''")}')` : ''}  ${p => p.search ? `AND (
     (T.TABLE_CATALOG || '.' || T.TABLE_SCHEMA || '.' || T.TABLE_NAME) ILIKE '%${p.search}%'
     OR ('"' || T.TABLE_CATALOG || '"."' || T.TABLE_SCHEMA || '"."' || T.TABLE_NAME || '"') ILIKE '%${p.search}%'
     OR T.TABLE_NAME ILIKE '%${p.search}%'
   )` : ''}
 ORDER BY
   T.TABLE_NAME
+LIMIT ${p => p.limit || 100};
+`;
+
+const searchSchemas: IBaseQueries['searchTables'] = queryFactory`
+SELECT
+  S.SCHEMA_NAME AS label,
+  S.SCHEMA_NAME AS schema,
+  S.CATALOG_NAME AS database,
+  '${ContextValue.SCHEMA}' AS type,
+  'schema' AS detail
+FROM INFORMATION_SCHEMA.SCHEMATA AS S
+WHERE S.SCHEMA_NAME !~ '^pg_'
+  AND S.SCHEMA_NAME <> 'information_schema'
+  ${p => p.search ? `AND S.SCHEMA_NAME ILIKE '%${p.search}%'` : ''}
+ORDER BY S.SCHEMA_NAME
 LIMIT ${p => p.limit || 100};
 `;
 
@@ -457,6 +471,7 @@ export default {
   fetchSchemas,
   fetchMaterializedViews,
   searchTables,
+  searchSchemas,
   searchColumns,
   searchFunctions,
   searchProcedures,

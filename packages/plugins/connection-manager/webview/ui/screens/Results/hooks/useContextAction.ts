@@ -44,7 +44,7 @@ export default function useContextAction() {
     if (queryType) {
       sendMessage(UIAction.CALL, {
         command: `${process.env.EXT_NAMESPACE}.${queryType}`,
-        args: [queryParams, { ...options, page: page, pageSize: pageSize || 50 }],
+        args: [queryParams, { ...options, page: page, pageSize: pageSize || 100 }],
       });
       return setState({ loading: true });
     }

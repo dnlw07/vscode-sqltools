@@ -25,7 +25,7 @@ export default function prepareSchema(
       driver: { title: 'driver', type: 'string' },
       ...(schema.properties || {}),
       previewLimit: {
-        default: 50,
+        default: 100,
         type: 'number',
         title: 'Show records default limit',
       },

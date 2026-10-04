@@ -732,7 +732,7 @@
                             },
                             "previewLimit": {
                                 "type": "number",
-                                "default": 50,
+                                "default": 100,
                                 "description": "Maximum number of records to return in table previews."
                             },
                             "icons": {
