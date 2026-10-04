@@ -216,13 +216,17 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     };
   }
 
+  public singleQuery: (typeof AbstractDriver)['prototype']['singleQuery'] = ((query: any, opt: any) => {
+    return this.query(query, { ...opt, __internal: true }).then(([result]) => result);
+  }) as any;
+
   public query: (typeof AbstractDriver)['prototype']['query'] = (query, opt = {}) => {
     const messages = [];
     let cli : PoolClient;
     const { requestId } = opt;
     const rawSql = query.toString();
     const queries = queryParse(rawSql, 'pg');
-    const canPaginate = queries.length === 1 && this.isPaginatableSelect(queries[0]);
+    const canPaginate = !(opt as any).__internal && queries.length === 1 && this.isPaginatableSelect(queries[0]);
 
     return this.open()
       .then(async (pool) => {
