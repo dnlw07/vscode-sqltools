@@ -553,7 +553,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     return quickPickSearch<NSDatabase.ITable>(loadOptions, {
       matchOnDescription: true,
       matchOnDetail: true,
-      title: `Tables in ${conn.database}`,
+      title: `Tables in ${conn.database || (conn as any).projectId || conn.name}`,
       placeHolder: 'Type something to search tables...',
     });
   }
