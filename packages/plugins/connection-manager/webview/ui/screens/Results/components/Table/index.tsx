@@ -344,7 +344,8 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       selectableRange: 1,
       selectableRangeColumns: true,
       selectableRangeRows: true,
-      selectableRangeAutoFocus: true,
+      // auto-focusing the default range on build pulls VS Code focus from the editor into the webview
+      selectableRangeAutoFocus: false,
       // Tabulator defaults to starting edit mode on cell *focus*, which fires as soon as a
       // cell is selected/dragged for ranging - explicit dblclick trigger matches Excel behavior
       editTriggerEvent: 'dblclick',
