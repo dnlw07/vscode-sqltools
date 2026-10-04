@@ -71,10 +71,10 @@ function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColum
   const pkColumns = mapped.filter(column => column.isPk);
   // no primary key: every mapped column is used to locate the row instead, matching the Save behavior
   const whereColumns = pkColumns.length ? pkColumns : mapped;
-  const selected = mapped.filter(column => selectedColumnNames.includes(column.name));
-  const setColumns = (selected.length ? selected : mapped).filter(column => !pkColumns.includes(column));
+  const setColumns = mapped.filter(column => selectedColumnNames.includes(column.name));
+  if (!setColumns.length) return '';
   return rows.map(row => {
-    const setClause = (setColumns.length ? setColumns : mapped).map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(', ');
+    const setClause = setColumns.map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(', ');
     const whereClause = whereColumns.map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(' AND ');
     return `UPDATE ${relation} SET ${setClause} WHERE ${whereClause};`;
   }).join('\n');
