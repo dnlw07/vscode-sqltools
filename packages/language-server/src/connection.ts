@@ -13,12 +13,12 @@ const log = createLogger('conn');
 export default class Connection {
   private connected: boolean = false;
   private conn: IConnectionDriver;
+  private completionCache = new Map<string, Promise<any>>();
   constructor(private credentials: IConnection, getWorkspaceFolders: LSIconnection['workspace']['getWorkspaceFolders']) {
-    if (!LSContext.drivers.has(credentials.driver)) {
+    const DriverClass = LSContext.drivers.get(credentials.driver);
+    if (!DriverClass) {
       throw new DriverNotInstalledError(credentials.driver);
     }
-
-    const DriverClass = LSContext.drivers.get(credentials.driver);
 
     this.conn = new DriverClass(this.credentials, getWorkspaceFolders);
   }
@@ -56,7 +56,8 @@ export default class Connection {
   }
 
   public close() {
-    if (this.needsPassword()) this.conn.credentials.password = null;
+    this.completionCache.clear();
+    if (this.needsPassword()) this.conn.credentials.password = undefined;
     this.connected = false;
     return this.conn.close();
   }
@@ -101,7 +102,7 @@ export default class Connection {
           message = JSON.stringify(e);
         }
         return [{
-          requestId: opt.requestId,
+          requestId: opt.requestId ?? generateId(),
           resultId: generateId(),
           connId: this.getId(),
           cols: [],
@@ -134,14 +135,16 @@ export default class Connection {
     return this.conn.credentials.driver;
   }
 
-  public getId() {
-    return getConnectionId(this.conn.credentials);
+  public getId(): string {
+    const id = getConnectionId(this.conn.credentials);
+    if (id === null) throw new Error('Unable to determine connection ID.');
+    return id;
   }
 
   public serialize(): IConnection {
     return {
-      id: this.getId(),
       ...this.conn.credentials,
+      id: this.getId(),
       isConnected: this.isConnected(),
     };
   }
@@ -154,6 +157,7 @@ export default class Connection {
   }
 
   public getChildrenForItem(params: { item: MConnectionExplorer.IChildItem; parent?: MConnectionExplorer.IChildItem }) {
+    if (typeof this.conn.getChildrenForItem !== 'function') return Promise.resolve([]);
     return this.conn.getChildrenForItem(params);
   }
 
@@ -176,13 +180,43 @@ export default class Connection {
     return insertQuery;
   }
 
-  public searchItems(itemType: ContextValue, search: string = '', extraParams = {}) {
-    return this.conn.searchItems(itemType, search, extraParams);
+  private cacheCompletion<T>(key: string, load: () => Promise<T>): Promise<T> {
+    const cached = this.completionCache.get(key);
+    if (cached) return cached;
+    const pending = Promise.resolve().then(load).catch(error => {
+      if (this.completionCache.get(key) === pending) this.completionCache.delete(key);
+      throw error;
+    });
+    if (this.completionCache.size >= 256) {
+      const firstKey = this.completionCache.keys().next().value;
+      if (firstKey !== undefined) this.completionCache.delete(firstKey);
+    }
+    this.completionCache.set(key, pending);
+    return pending;
   }
 
-  public getStaticCompletions: IConnectionDriver['getStaticCompletions'] = () => {
-    if (typeof this.conn.getStaticCompletions !== 'function') return Promise.resolve({} as any);
-    return this.conn.getStaticCompletions();
+  public searchItems(itemType: ContextValue, search: string = '', extraParams = {}) {
+    const searchItems = this.conn.searchItems;
+    if (typeof searchItems !== 'function') return Promise.resolve([]);
+    const key = JSON.stringify([itemType, search, extraParams], (_key, value) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+      return Object.keys(value).sort().reduce((sorted, property) => {
+        sorted[property] = value[property];
+        return sorted;
+      }, {} as any);
+    });
+    return this.cacheCompletion<NSDatabase.SearchableItem[]>(key, () => searchItems.call(this.conn, itemType, search, extraParams))
+      .then(items => items.map(item => ({ ...item })));
+  }
+
+  public getStaticCompletions: NonNullable<IConnectionDriver['getStaticCompletions']> = () => {
+    const getStaticCompletions = this.conn.getStaticCompletions;
+    if (typeof getStaticCompletions !== 'function') return Promise.resolve({} as any);
+    return this.cacheCompletion<Awaited<ReturnType<NonNullable<IConnectionDriver['getStaticCompletions']>>>>('static', () => getStaticCompletions.call(this.conn))
+      .then(items => Object.keys(items).reduce((copy, key) => {
+        copy[key] = { ...items[key] };
+        return copy;
+      }, {} as typeof items));
   }
 
   public getCompletionsForRawQuery(text: string, currentOffset: number): Promise<CompletionItem[] | null> {
