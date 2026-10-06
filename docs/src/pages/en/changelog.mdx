@@ -7,6 +7,10 @@ order: 10
 
 ## v0.28
 
+### Unreleased
+
+- Select `*` in a single-table `SELECT`, press Ctrl+Space, and accept **Expand * to all columns** with Enter or Tab to insert a comma-separated column list. Qualified wildcards such as `e.*` retain the qualifier on every column. Column names are inserted without automatic quotes, and the list is not capped by normal completion limits. Names requiring quotes (such as reserved words or names containing spaces) must be quoted manually. Requires an active connection and catalog metadata; unqualified multi-table wildcards, CTEs, and derived tables are not expanded.
+
 ### v0.28.6 - (Jul 6, 2026)
 
 See https://github.com/mtxr/vscode-sqltools/releases/tag/v0.28.6

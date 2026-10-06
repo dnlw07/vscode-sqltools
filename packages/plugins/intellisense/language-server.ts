@@ -7,6 +7,7 @@ import { TableCompletionItem, TableColumnCompletionItem, DatabaseCompletionItem 
 import { createLogger } from '@sqltools/log/src';
 import sqlAutocompleteParser from 'gethue/parsers/genericAutocompleteParser.js';
 import { COMPLETION_LOOKAHEAD, createCompletionList } from './completion-list';
+import { getWildcardCompletion } from './wildcard-completion';
 
 const log = createLogger('intellisense');
 
@@ -192,6 +193,13 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
         log.info('no active connection, keyword completions:: %d', keywordCompletions.length);
         return keywordCompletions;
       };
+
+      const wildcardCompletion = await getWildcardCompletion(
+        this.server.docManager.get(params.textDocument.uri), currentOffset, conn
+      );
+      if (wildcardCompletion) {
+        return createCompletionList([wildcardCompletion]);
+      }
 
       // First try connection's getCompletionsForRawQuery method if the connection supports it
       const connectionCompletions = await conn.getCompletionsForRawQuery(text, currentOffset);
