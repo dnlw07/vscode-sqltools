@@ -99,6 +99,9 @@ const typedInputEditor: Extract<Editor, (...args: any[]) => any> = (cell, onRend
   };
   input.addEventListener('blur', commit);
   input.addEventListener('keydown', event => {
+    if (event.key === 'Home' || event.key === 'End') {
+      event.stopPropagation();
+    }
     if (event.key === 'Enter') {
       event.preventDefault();
       commit();
@@ -174,13 +177,18 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       });
       editsByRow.set(rowindex, { table: { label: firstSource.table, schema: firstSource.schema }, primaryKey, changes });
     });
+    const editedRowIndexes = [...editsByRow.keys()];
     const correlationId = `${Date.now()}-${Math.random()}`;
     const receiveResult = (event: MessageEvent) => {
       if (event.data?.action !== UIAction.CALL_RESULT || event.data?.payload?.correlationId !== correlationId) return;
       window.removeEventListener('message', receiveResult);
       const response = event.data.payload.result;
       setSaving(false);
-      if (!response?.success) return setSaveError(response?.error || 'Unable to save changes.');
+      if (!response?.success) {
+        const rowindex = Number.isInteger(response?.failedIndex) ? editedRowIndexes[response.failedIndex] : undefined;
+        const message = response?.error || 'Unable to save changes.';
+        return setSaveError(typeof rowindex === 'number' ? `Row ${rowindex + 1}: ${message}` : message);
+      }
       pendingEditsRef.current.forEach(edit => tableRef.current?.getRows()?.[edit.rowindex]?.getCell(edit.colname)?.getElement().classList.remove(style.dirtyCell));
       pendingEditsRef.current.clear();
       setPendingEditCount(0);

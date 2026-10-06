@@ -342,28 +342,44 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     if (!edits.length) return { success: true };
     const quoteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
     const client = await (await this.open()).connect();
+    let failedIndex = 0;
+    let transactionStarted = false;
     try {
-      await client.query('BEGIN');
-      for (let index = 0; index < edits.length; index++) {
-        const { table, primaryKey, changes } = edits[index];
-        const changeColumns = Object.keys(changes);
-        const primaryKeyColumns = Object.keys(primaryKey);
-        if (!table?.label || !changeColumns.length || !primaryKeyColumns.length) throw new Error('Invalid edit request.');
-        const values = [...changeColumns.map(column => changes[column]), ...primaryKeyColumns.map(column => primaryKey[column])];
-        const setClause = changeColumns.map((column, valueIndex) => `${quoteIdentifier(column)} = $${valueIndex + 1}`).join(', ');
-        const whereClause = primaryKeyColumns.map((column, valueIndex) => `${quoteIdentifier(column)} IS NOT DISTINCT FROM $${changeColumns.length + valueIndex + 1}`).join(' AND ');
+      const prepared = edits.map(({ table, primaryKey, changes }, index) => {
+        failedIndex = index;
+        const changeColumns = Object.keys(changes || {});
+        const matchColumns = Object.keys(primaryKey || {});
+        if (!table?.label || !changeColumns.length || !matchColumns.length ||
+          matchColumns.some(column => primaryKey[column] === undefined) ||
+          changeColumns.some(column => changes[column] === undefined)) throw new Error('Invalid edit request.');
+        const matchValues = matchColumns.map(column => primaryKey[column]);
+        const whereClause = matchColumns.map((column, valueIndex) => `${quoteIdentifier(column)} IS NOT DISTINCT FROM $${valueIndex + 1}`).join(' AND ');
+        const setClause = changeColumns.map((column, valueIndex) => `${quoteIdentifier(column)} = $${matchValues.length + valueIndex + 1}`).join(', ');
         const relation = [table.schema, table.label].filter(Boolean).map(quoteIdentifier).join('.');
+        return { relation, whereClause, setClause, matchValues, values: [...matchValues, ...changeColumns.map(column => changes[column])] };
+      });
+      await client.query('BEGIN');
+      transactionStarted = true;
+      for (let index = 0; index < prepared.length; index++) {
+        failedIndex = index;
+        const { relation, whereClause, matchValues } = prepared[index];
+        const result = await client.query({ text: `SELECT COUNT(*) AS "matching_count" FROM ${relation} WHERE ${whereClause}`, values: matchValues });
+        const count = Number(result.rows?.[0]?.matching_count);
+        if (count !== 1) throw new Error(`Unsafe update for ${relation}: WHERE matches ${Number.isFinite(count) ? count : 'an unknown number of'} rows; expected exactly 1. No changes saved.`);
+      }
+      for (let index = 0; index < prepared.length; index++) {
+        failedIndex = index;
+        const { relation, whereClause, setClause, values } = prepared[index];
         const result = await client.query({ text: `UPDATE ${relation} SET ${setClause} WHERE ${whereClause}`, values });
         if (result.rowCount !== 1) {
-          await client.query('ROLLBACK');
-          return { success: false, failedIndex: index, error: 'Row was modified or deleted since it was loaded.' };
+          throw new Error('Row matching changed after validation. No changes saved.');
         }
       }
       await client.query('COMMIT');
       return { success: true };
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      return { success: false, error: error.message || String(error) };
+      if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+      return { success: false, failedIndex, error: error.message || String(error) };
     } finally {
       client.release();
     }
