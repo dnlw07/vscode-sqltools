@@ -1,4 +1,4 @@
-import { CompletionItem, CompletionItemKind, Range } from 'vscode-languageserver';
+import { CompletionItem, CompletionItemKind, CompletionList, Range } from 'vscode-languageserver';
 import { ILanguageServerPlugin, ILanguageServer, ContextValue, Arg0, NSDatabase } from '@sqltools/types';
 import { getDocumentCurrentQuery } from './query';
 import connectionStateCache, { LAST_USED_ID_KEY, ACTIVE_CONNECTIONS_KEY } from '../connection-manager/cache/connections-state.model';
@@ -6,6 +6,7 @@ import Connection from '@sqltools/language-server/src/connection';
 import { TableCompletionItem, TableColumnCompletionItem, DatabaseCompletionItem } from './models';
 import { createLogger } from '@sqltools/log/src';
 import sqlAutocompleteParser from 'gethue/parsers/genericAutocompleteParser.js';
+import { COMPLETION_LOOKAHEAD, createCompletionList } from './completion-list';
 
 const log = createLogger('intellisense');
 
@@ -56,7 +57,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     const prefix = (suggestDatabases.prependQuestionMark ? "? " : "") + (suggestDatabases.prependFrom ? "FROM " : "");
     const suffix = suggestDatabases.appendDot ? "." : "";
 
-    const dbs = await conn.searchItems(ContextValue.DATABASE, currentWord) as [NSDatabase.IDatabase];
+    const dbs = await conn.searchItems(ContextValue.DATABASE, currentWord, {}, COMPLETION_LOOKAHEAD) as [NSDatabase.IDatabase];
     log.info('got %d db completions', dbs && dbs.length);
     if (dbs && dbs.length > 0) {
       return dbs
@@ -75,7 +76,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     const database = suggestTables.identifierChain && suggestTables.identifierChain[0].name;
     const suffix = suggestTables.appendDot ? "." : "";
 
-    const tables = await conn.searchItems(ContextValue.TABLE, currentWord, { database }) as [NSDatabase.ITable];
+    const tables = await conn.searchItems(ContextValue.TABLE, currentWord, { database }, COMPLETION_LOOKAHEAD) as [NSDatabase.ITable];
     log.info('got %d table completions', tables.length);
     if (tables.length > 0) {
       return tables
@@ -95,7 +96,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       .map((t: [string]) => (<NSDatabase.ITable>{ label: t.pop(), database: t.pop() }));
     const columns = await conn.searchItems(ContextValue.COLUMN, currentWord, {
       tables
-    }) as [NSDatabase.IColumn];
+    }, COMPLETION_LOOKAHEAD) as [NSDatabase.IColumn];
     log.info('got %d column completions', columns.length);
     if (columns.length > 0) {
       return columns.map(c => ({
@@ -126,7 +127,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     })
   }
 
-  private getCompletionsFromHueAst = async ({ currentWord, conn, text, currentOffset }: { currentWord: string; conn: Connection | null; text: string; currentOffset: number }): Promise<CompletionItem[]> => {
+  private getCompletionsFromHueAst = async ({ currentWord, conn, text, currentOffset }: { currentWord: string; conn: Connection | null; text: string; currentOffset: number }): Promise<CompletionList> => {
     let completionsMap = {
       query: [],
       tables: [],
@@ -167,12 +168,11 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     completionsMap.columns = columnCompletions;
     completionsMap.dbs = dbCompletions;
 
-    const completions = completionsMap.columns
+    const objectCompletions = completionsMap.columns
       .concat(completionsMap.tables)
-      .concat(completionsMap.dbs)
-      .concat(completionsMap.query);
+      .concat(completionsMap.dbs);
 
-    return completions;
+    return createCompletionList(objectCompletions, completionsMap.query);
   }
 
   private onCompletion: Arg0<ILanguageServer['onCompletion']> = async params => {
@@ -197,13 +197,13 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       const connectionCompletions = await conn.getCompletionsForRawQuery(text, currentOffset);
       if (connectionCompletions !== null) {
         log.info('Got completions from the raw query, count: %d', connectionCompletions.length);
-        return connectionCompletions;
+        return createCompletionList(connectionCompletions);
       }
 
       // Fallback to hue AST-based completions
       log.info('Using completions based on hue SQL parser');
       const completions = await this.getCompletionsFromHueAst({ currentWord, conn, text, currentOffset });
-      log.info('total completions %d', completions.length);
+      log.info('total completions %d (incomplete: %s)', completions.items.length, completions.isIncomplete);
       return completions;
     } catch (error) {
       log.error('got an error:\n %O', error);

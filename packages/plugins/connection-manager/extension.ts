@@ -8,6 +8,7 @@ import { EXT_CONFIG_NAMESPACE, EXT_NAMESPACE } from '@sqltools/util/constants';
 import { default as logger, createLogger } from '@sqltools/log/src';
 import { getDataPath, SESSION_FILES_DIRNAME } from '@sqltools/util/path';
 import { extractConnName, getQueryParameters, extractCommentVariables } from '@sqltools/util/query';
+import { getQueryBlockAtOffset, getQueryBlockConnectionName, parseQueryBlocks, QueryBlock } from '@sqltools/util/query/blocks';
 import { isEmpty } from '@sqltools/util/validation';
 import Context from '@sqltools/vscode/context';
 import { getOrCreateEditor, getSelectedText, readInput } from '@sqltools/vscode/utils';
@@ -52,6 +53,10 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   private explorer: ConnectionExplorer;
   private codeLensPlugin: CodeLensPlugin;
   private queryExecutionTracker = new QueryExecutionTracker();
+  private connectionSwitchGeneration = 0;
+  private activeQueryBlockKey: string;
+  private connectionSwitchQueue: Promise<void> = Promise.resolve();
+  private queryBlocksCache = new WeakMap<TextDocument, { version: number; blocks: QueryBlock[] }>();
 
   // extension commands
   private ext_refreshTree = (connIdOrTreeItem: SidebarConnection | SidebarConnection[]) => {
@@ -287,8 +292,13 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
 
   private ext_executeQuery = async (query?: string, { connNameOrId, connId, ...opt }: IQueryOptions = {}) => {
     try {
+      const queryWasProvided = typeof query === 'string';
+      const editor = window.activeTextEditor;
       query = typeof query === 'string' ? query : await getSelectedText('execute query');
       connNameOrId = connId || connNameOrId;
+      if (!connNameOrId && !queryWasProvided && editor) {
+        connNameOrId = this.getEditorBlockConnectionName(editor);
+      }
       if (!connNameOrId) { // check query defined connection name
         connNameOrId = extractConnName(query);
       }
@@ -346,7 +356,9 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       return this.ext_executeQuery();
     }
     const { currentQuery } = getEditorQueryDetails(activeEditor);
-    return this.ext_executeQuery(currentQuery);
+    return this.ext_executeQuery(currentQuery, {
+      connNameOrId: this.getEditorBlockConnectionName(activeEditor),
+    });
   }
 
   private ext_executeQueryFromFile = async () => {
@@ -754,6 +766,34 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
 
   private changeTextEditorHandler = async (editor: TextEditor) => {
     if (!editor || !editor.document) return;
+    const generation = ++this.connectionSwitchGeneration;
+    const block = this.getEditorQueryBlock(editor);
+    const blockConnection = getQueryBlockConnectionName(block, editor.document.getText());
+    const blockKey = this.getEditorQueryBlockKey(editor);
+    this.activeQueryBlockKey = blockKey;
+    const isCurrent = () =>
+      generation === this.connectionSwitchGeneration &&
+      window.activeTextEditor === editor &&
+      this.getEditorQueryBlockKey(editor) === blockKey;
+
+    if (blockConnection) {
+      const connections = await this.ext_getConnections({
+        connectedOnly: false,
+        sort: 'connectedFirst',
+      }) || [];
+      if (!isCurrent()) return;
+
+      const target = connections.find(
+        c => c.name === blockConnection || getConnectionId(c) === blockConnection
+      );
+      if (!target) {
+        await window.showWarningMessage(`SQLTools: connection '${blockConnection}' from the current SQL block was not found.`);
+        return;
+      }
+
+      await this.selectConnectionIfCurrent(getConnectionId(target), generation, isCurrent);
+      return;
+    }
 
     // ── Auto-switch connection by file name pattern ───────────────────────
     // Setting format: { "ConnectionName": ["*pattern*", "*other*"] }
@@ -775,12 +815,13 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
           const connections: IConnection[] = await this.ext_getConnections({
             connectedOnly: false,
             sort: 'connectedFirst',
-          });
+          }) || [];
+          if (!isCurrent()) return;
           const target = connections.find(
             c => c.name === connName || getConnectionId(c) === connName
           );
           if (target) {
-            await this.ext_selectConnection(getConnectionId(target), false);
+            await this.selectConnectionIfCurrent(getConnectionId(target), generation, isCurrent);
             return; // first match wins
           }
         }
@@ -790,11 +831,73 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     // ── Existing: restore connection attached to this file ─────────────────
     const connId = getAttachedConnection(editor.document.uri);
     if (!connId) {
+      if (!isCurrent()) return;
       return commands.executeCommand('setContext', `${EXT_NAMESPACE}.file.connectionAttached`, false);
     }
 
-    await this.ext_selectConnection(connId, editor.document.uri.scheme === EXT_NAMESPACE);
+    if (!isCurrent()) return;
+    await this.selectConnectionIfCurrent(connId, generation, isCurrent, editor.document.uri.scheme === EXT_NAMESPACE);
     await commands.executeCommand('setContext', `${EXT_NAMESPACE}.file.connectionAttached`, true);
+  }
+
+  private selectConnectionIfCurrent(
+    connId: string,
+    generation: number,
+    isCurrent: () => boolean,
+    trySessionFile = false
+  ) {
+    const select = this.connectionSwitchQueue.then(async () => {
+      if (generation !== this.connectionSwitchGeneration || !isCurrent()) return;
+      await this.ext_selectConnection(connId, trySessionFile);
+    });
+    this.connectionSwitchQueue = select.catch(error => {
+      log.error('Failed to switch connection for SQL block: %O', error);
+    });
+    return this.connectionSwitchQueue;
+  }
+
+  private getEditorQueryBlocks(editor: TextEditor) {
+    const document = editor.document;
+    const cached = this.queryBlocksCache.get(document);
+    if (cached && cached.version === document.version) return cached.blocks;
+
+    const blocks = parseQueryBlocks(document.getText());
+    this.queryBlocksCache.set(document, { version: document.version, blocks });
+    return blocks;
+  }
+
+  private getEditorQueryBlock(editor: TextEditor) {
+    const blocks = this.getEditorQueryBlocks(editor);
+    const offset = editor.document.offsetAt(editor.selection.active);
+    return getQueryBlockAtOffset(blocks, offset) || blocks[blocks.length - 1];
+  }
+
+  private getEditorQueryBlockKey(editor: TextEditor) {
+    const block = this.getEditorQueryBlock(editor);
+    const connectionName = getQueryBlockConnectionName(block, editor.document.getText()) || '';
+    return `${editor.document.uri.toString()}:${block.startOffset}:${block.marker || 'default'}:${connectionName}`;
+  }
+
+  private getEditorBlockConnectionName(editor: TextEditor) {
+    const text = editor.document.getText();
+    const block = this.getEditorQueryBlock(editor);
+    return getQueryBlockConnectionName(block, text);
+  }
+
+  private changeTextEditorSelectionHandler = (event: { textEditor: TextEditor }) => {
+    const editor = event && event.textEditor;
+    if (!editor || editor !== window.activeTextEditor) return;
+
+    const blockKey = this.getEditorQueryBlockKey(editor);
+    if (blockKey === this.activeQueryBlockKey) return;
+    return this.changeTextEditorHandler(editor);
+  }
+
+  private changeTextDocumentHandler = (event: { document: TextDocument }) => {
+    const editor = window.activeTextEditor;
+    if (!editor || !event || editor.document !== event.document) return;
+    if (this.getEditorQueryBlockKey(editor) === this.activeQueryBlockKey) return;
+    return this.changeTextEditorHandler(editor);
   }
 
   private onDidOpenOrCloseTextDocument = (doc: TextDocument) => {
@@ -931,7 +1034,9 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       statusBar,
       workspace.onDidCloseTextDocument(this.onDidOpenOrCloseTextDocument),
       workspace.onDidOpenTextDocument(this.onDidOpenOrCloseTextDocument),
+      workspace.onDidChangeTextDocument(this.changeTextDocumentHandler),
       window.onDidChangeActiveTextEditor(this.changeTextEditorHandler),
+      window.onDidChangeTextEditorSelection(this.changeTextEditorSelectionHandler),
     );
 
     this.explorer.refresh();

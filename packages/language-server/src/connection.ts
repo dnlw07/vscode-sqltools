@@ -27,7 +27,7 @@ export default class Connection {
   private connected: boolean = false;
   private conn: IConnectionDriver;
   private completionCache: CompletionCache = new Map();
-  private fallbackCompletionCache: CompletionCache;
+  private fallbackCompletionCache?: CompletionCache;
   constructor(private credentials: IConnection, getWorkspaceFolders: LSIconnection['workspace']['getWorkspaceFolders']) {
     const DriverClass = LSContext.drivers.get(credentials.driver);
     if (!DriverClass) {
@@ -220,7 +220,14 @@ export default class Connection {
     return pending;
   }
 
-  private searchItemsWithCache(itemType: ContextValue, search: string, extraParams: {}, cache: CompletionCache, useFallback: boolean) {
+  private searchItemsWithCache(
+    itemType: ContextValue,
+    search: string,
+    extraParams: {},
+    cache: CompletionCache,
+    useFallback: boolean,
+    maxResults?: number
+  ) {
     const searchItems = this.conn.searchItems;
     if (typeof searchItems !== 'function') return Promise.resolve([]);
     const key = this.completionKey(itemType, search, extraParams);
@@ -229,13 +236,26 @@ export default class Connection {
       const unfiltered = this.fallbackCompletionCache && this.fallbackCompletionCache.get(this.completionKey(itemType, '', extraParams));
       if (unfiltered) {
         const normalizedSearch = search.toUpperCase();
-        return unfiltered.then(items => items
-          .filter(item => item.label.toUpperCase().includes(normalizedSearch))
-          .map(item => ({ ...item })));
+        return unfiltered.then(items => {
+          const matches = [];
+          for (const item of items) {
+            if (item.label.toUpperCase().includes(normalizedSearch)) {
+              matches.push(item);
+              if (maxResults && matches.length >= maxResults) break;
+            }
+          }
+          return matches.map(item => ({ ...item }));
+        });
       }
     }
-    return this.cacheCompletion<NSDatabase.SearchableItem[]>(key, () => searchItems.call(this.conn, itemType, search, extraParams), cache, useFallback)
-      .then(items => (items || []).map(item => ({ ...item })));
+    const load = () => Promise.resolve(searchItems.call(this.conn, itemType, search, extraParams))
+      .then(items => maxResults ? (items || []).slice(0, maxResults) : items);
+    return this.cacheCompletion<NSDatabase.SearchableItem[]>(key, load, cache, useFallback)
+      .then(items => {
+        const allItems = items || [];
+        const results = maxResults ? allItems.slice(0, maxResults) : allItems;
+        return results.map(item => ({ ...item }));
+      });
   }
 
   private completionKey(itemType: ContextValue, search: string, extraParams: {}) {
@@ -248,8 +268,8 @@ export default class Connection {
     });
   }
 
-  public searchItems(itemType: ContextValue, search: string = '', extraParams = {}) {
-    return this.searchItemsWithCache(itemType, search, extraParams, this.completionCache, true);
+  public searchItems(itemType: ContextValue, search: string = '', extraParams = {}, maxResults?: number) {
+    return this.searchItemsWithCache(itemType, search, extraParams, this.completionCache, true, maxResults);
   }
 
   public getStaticCompletions: NonNullable<IConnectionDriver['getStaticCompletions']> = () => {

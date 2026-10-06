@@ -64,6 +64,44 @@ describe('connection completion cache', () => {
     expect(second[0].label).toBe('TABLES');
   });
 
+  it('limits returned copies without truncating the cached catalog', async () => {
+    const catalog = Array.from({ length: 72000 }, (_, index) => ({ label: `TABLE_${index}` }));
+    const key = JSON.stringify([ContextValue.TABLE, '', {}]);
+    (connection as any).fallbackCompletionCache = new Map([[key, Promise.resolve(catalog)]]);
+    const limited = await connection.searchItems(ContextValue.TABLE, '', {}, 501);
+    const cachedCatalog = await (connection as any).fallbackCompletionCache.get(key);
+
+    expect(limited).toHaveLength(501);
+    expect(cachedCatalog).toHaveLength(72000);
+    expect(driver.searchItems).not.toHaveBeenCalled();
+  });
+
+  it('stores only bounded typed-search results in the request cache', async () => {
+    const catalog = Array.from({ length: 72000 }, (_, index) => ({ label: `TABLE_${index}` }));
+    driver.searchItems = jest.fn(async () => catalog);
+
+    const limited = await connection.searchItems(ContextValue.TABLE, 'TABLE_', {}, 501);
+    const cached = await (connection as any).completionCache.get(
+      JSON.stringify([ContextValue.TABLE, 'TABLE_', {}])
+    );
+
+    expect(limited).toHaveLength(501);
+    expect(cached).toHaveLength(501);
+    expect(driver.searchItems).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops scanning cached catalog after enough matching suggestions', async () => {
+    const catalog = Array.from({ length: 72000 }, (_, index) => ({ label: `TABLE_${index}` }));
+    const key = JSON.stringify([ContextValue.TABLE, '', {}]);
+    (connection as any).fallbackCompletionCache = new Map([[key, Promise.resolve(catalog)]]);
+
+    const matches = await connection.searchItems(ContextValue.TABLE, 'TABLE_', {}, 501);
+
+    expect(matches).toHaveLength(501);
+    expect(matches[500].label).toBe('TABLE_500');
+    expect(driver.searchItems).not.toHaveBeenCalled();
+  });
+
   it('retries failures rather than caching them', async () => {
     driver.searchItems.mockRejectedValueOnce(new Error('temporary failure'));
     await expect(connection.searchItems(ContextValue.TABLE)).rejects.toThrow('temporary failure');

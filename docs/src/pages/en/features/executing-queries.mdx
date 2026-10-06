@@ -10,6 +10,8 @@ You have 3 methods to execute queries. Run from selection, run from bookmarks, r
 
 **TIP**: You can also set a connection to run queries against it in the first line of the file using `-- @conn ConnectionName`.
 
+In SQL files that use query blocks, `-- %% ConnectionName` starts a block assigned to that connection. Moving the cursor into the block switches the active connection, and running the current query uses the same connection. A bare `-- %%` starts an unassigned block and falls back to the file or active connection.
+
 ## Running from a file/selection
 
 1. With an open file, select the queries you want to run.

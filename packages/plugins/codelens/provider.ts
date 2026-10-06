@@ -2,6 +2,7 @@ import { CodeLensProvider, TextDocument, CodeLens, Range, Command, Event, EventE
 import * as Constants from '@sqltools/util/constants';
 import { getNameFromId } from '@sqltools/util/connection';
 import { extractConnName } from '@sqltools/util/query';
+import { getQueryBlockConnectionName, parseQueryBlocks, stripQueryBlockMarkers } from '@sqltools/util/query/blocks';
 import Context from '@sqltools/vscode/context';
 import { getAttachedConnection } from '../connection-manager/attached-files';
 
@@ -30,21 +31,18 @@ export default class SQLToolsCodeLensProvider implements CodeLensProvider {
     }
 
     const text = document.getText();
-    const allBlocks = text.replace(Constants.DELIMITER_START_REGEX, '<#####>$1').split('<#####>');
+    const allBlocks = parseQueryBlocks(text);
 
     if (allBlocks.length === 0) return lenses;
 
-    let textOffset = 0;
     allBlocks.forEach(block => {
-      const startIndex = textOffset + text.substr(textOffset).indexOf(block);
-      const start = document.positionAt(startIndex);
-      const end = document.positionAt(startIndex + block.length);
+      const start = document.positionAt(block.startOffset);
+      const end = document.positionAt(block.endOffset);
       const range = new Range(start, end);
-      textOffset = startIndex + block.length;
-      const connName = extractConnName(block);
+      const connName = getQueryBlockConnectionName(block, text) || defaultConn;
       const runCmd: Command = {
-        arguments: [block.replace(Constants.DELIMITER_START_REPLACE_REGEX, '').trim(), (connName || defaultConn || '').trim() || undefined].filter(Boolean),
-        title: `$(debug-start) Run on ${(connName || defaultConn || 'active connection').trim()}`,
+        arguments: [stripQueryBlockMarkers(block.text).trim(), { connNameOrId: (connName || '').trim() || undefined }],
+        title: `$(debug-start) Run on ${(connName || 'active connection').trim()}`,
         command: `${Constants.EXT_NAMESPACE}.executeQuery`,
       };
       lenses.push(new CodeLens(range, runCmd));
