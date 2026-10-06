@@ -78,7 +78,7 @@
     border: 1px solid var(--vscode-panel-border, #3b3b3b);
     background: var(--vscode-editor-background, #1e1e1e);
     color: var(--vscode-editor-foreground, #cccccc);
-    font-family: var(--sqltools-font-family, var(--sqltools-fontFamily));
+    font-family: var(--sqltools-grid-font-family, var(--sqltools-font-family, var(--sqltools-fontFamily)));
     font-size: var(--sqltools-font-size, var(--sqltools-fontSize));
   }
 
@@ -113,7 +113,7 @@
     border-bottom: 1px solid var(--vscode-panel-border, #3b3b3b) !important;
     background: var(--vscode-editorWidget-background, #2a2d30) !important;
     color: var(--vscode-editor-foreground, #cccccc) !important;
-    font-family: var(--sqltools-font-family, var(--sqltools-fontFamily)) !important;
+    font-family: var(--sqltools-grid-font-family, var(--sqltools-font-family, var(--sqltools-fontFamily))) !important;
   }
 
   :global(.tabulator .tabulator-col) {
@@ -130,7 +130,7 @@
   :global(.tabulator .tabulator-col-sorter) {
     color: var(--vscode-foreground, #cccccc) !important;
     background: transparent !important;
-    font-family: var(--sqltools-font-family, var(--sqltools-fontFamily)) !important;
+    font-family: var(--sqltools-grid-font-family, var(--sqltools-font-family, var(--sqltools-fontFamily))) !important;
   }
 
   :global(.tabulator .tabulator-row) {
@@ -151,7 +151,7 @@
   :global(.tabulator .tabulator-row-header) {
     border-right: 1px solid var(--vscode-panel-border, #2d2d2d) !important;
     color: var(--vscode-editor-foreground, #cccccc) !important;
-    font-family: var(--sqltools-font-family, var(--sqltools-fontFamily)) !important;
+    font-family: var(--sqltools-grid-font-family, var(--sqltools-font-family, var(--sqltools-fontFamily))) !important;
   }
 
   :global(.tabulator .tabulator-row-header) {

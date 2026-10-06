@@ -672,6 +672,7 @@ export interface IResultsOptions {
    */
   customization?: {
     'font-family'?: string;
+    'grid-font-family'?: string;
     'font-size'?: string;
     'table-cell-padding'?: string;
   };

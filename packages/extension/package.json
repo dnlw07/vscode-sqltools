@@ -837,6 +837,10 @@
                         "font-family": {
                             "type": "string"
                         },
+                        "grid-font-family": {
+                            "type": "string",
+                            "description": "Font family used only in the results grid."
+                        },
                         "font-size": {
                             "type": "string"
                         },
@@ -1017,21 +1021,25 @@
             "sqltoolsActivityBarContainer": [
                 {
                     "id": "sqltoolsViewConnectionExplorer",
-                    "name": "Connections"
+                    "name": "Connections",
+                    "icon": "icons/database-dark.svg"
                 },
                 {
                     "id": "sqltoolsViewBookmarksExplorer",
-                    "name": "Bookmarks"
+                    "name": "Bookmarks",
+                    "icon": "icons/save-dark.svg"
                 },
                 {
                     "id": "sqltoolsViewHistoryExplorer",
-                    "name": "Query History"
+                    "name": "Query History",
+                    "icon": "icons/refresh-dark.svg"
                 }
             ],
             "sqltoolsPanelContainer": [
                 {
                     "id": "sqltoolsViewConsoleMessages",
                     "name": "Messages",
+                    "icon": "icons/show-dark.svg",
                     "when": "sqltools.consoleMessages.active"
                 }
             ]

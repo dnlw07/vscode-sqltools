@@ -481,17 +481,14 @@ See https://github.com/mtxr/vscode-sqltools/releases/tag/v0.25.1
 
   - Add some options to customize results screen. Issue [#174](https://github.com/mtxr/vscode-sqltools/issues/174). Eg:
     ```json
-    ...
-    "sqltools.results": {
-      ...
-      "customization": {
-        "font-size": "12px",
-        "font-family": "monospace",
-        "table-cell-padding": "2px 4px"
-      }
-    },
-    ...
+    "sqltools.results.customization": {
+      "font-size": "12px",
+      "font-family": "monospace",
+      "grid-font-family": "Cascadia Code",
+      "table-cell-padding": "2px 4px"
+    }
     ```
+    Set `grid-font-family` to change only the results grid font; the context menu and surrounding results UI keep their existing fonts.
   - Allow connecting to MySQL using Socket files. Issue [#163](https://github.com/mtxr/sqltools-formatter/issues/163).
     See [https://vscode-sqltools.mteixeira.dev/driver/mysql#1-connections](https://vscode-sqltools.mteixeira.dev/driver/mysql#1-connections)
 
