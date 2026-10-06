@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build SQLTools release VSIX",
+			"type": "shell",
+			"command": "$env:NODE_ENV='production'; Set-Location build-tools; node --max_old_space_size=8192 .\\node_modules\\webpack\\bin\\webpack.js --env pkg=extension; if ($LASTEXITCODE -eq 0) { Set-Location ..\\packages\\extension; & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-0.28.40.vsix }",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
