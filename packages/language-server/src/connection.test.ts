@@ -1,27 +1,43 @@
 import Connection from './connection';
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import LSContext from './context';
 import { ContextValue } from '@sqltools/types';
+import fs from 'fs';
 
 jest.mock('./context', () => ({ __esModule: true, default: { drivers: new Map() } }));
 jest.mock('@sqltools/log/src', () => ({ createLogger: () => ({ error: jest.fn() }) }));
 jest.mock('@sqltools/util/config-manager', () => ({ __esModule: true, default: {} }));
+jest.mock('@sqltools/util/path', () => ({
+  getDataPath: () => require('path').join(require('os').tmpdir(), `sqltools-autosuggestions-test-${process.pid}.json`),
+}));
+
+const cachePath = require('path').join(require('os').tmpdir(), `sqltools-autosuggestions-test-${process.pid}.json`);
 
 describe('connection completion cache', () => {
   let connection: Connection;
   let driver: any;
+  let connectionId = 0;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await (Connection as any).persistenceQueue;
+    if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+    (Connection as any).completionSnapshots.clear();
+    (Connection as any).completionSnapshotsLoaded = false;
     driver = {
       credentials: {},
       searchItems: jest.fn(async () => [{ label: 'TABLES' }]),
       getStaticCompletions: jest.fn(async () => ({ COUNT: { label: 'COUNT' } })),
+      testConnection: jest.fn(async () => undefined),
       close: jest.fn(async () => undefined),
     };
     LSContext.drivers.set('cache-test', class {
       constructor() { return driver; }
     } as any);
-    connection = new Connection({ driver: 'cache-test' } as any, jest.fn());
+    connection = new Connection({ id: `cache-test-${++connectionId}`, driver: 'cache-test' } as any, jest.fn());
+  });
+
+  afterAll(() => {
+    if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
   });
 
   it('deduplicates concurrent and repeated searches with equivalent contexts', async () => {
@@ -64,6 +80,66 @@ describe('connection completion cache', () => {
     await connection.getStaticCompletions();
     expect(driver.searchItems).toHaveBeenCalledTimes(2);
     expect(driver.getStaticCompletions).toHaveBeenCalledTimes(2);
+  });
+
+  it('serves the previous search cache until schema and table warm-up succeeds', async () => {
+    await connection.searchItems(ContextValue.TABLE, 'CACHED');
+    await connection.connect();
+    await connection.close();
+
+    let resolveSchemas!: (items: any[]) => void;
+    let resolveTables!: (items: any[]) => void;
+    driver.searchItems = jest.fn((itemType: ContextValue, search: string) => {
+      if (itemType === ContextValue.SCHEMA) return new Promise(resolve => { resolveSchemas = resolve; });
+      if (itemType === ContextValue.TABLE && search === '') return new Promise(resolve => { resolveTables = resolve; });
+      return Promise.resolve([{ label: 'FRESH' }]);
+    });
+    connection = new Connection({ id: `cache-test-${connectionId}`, driver: 'cache-test' } as any, jest.fn());
+
+    await connection.connect();
+    await expect(connection.searchItems(ContextValue.TABLE, 'CACHED')).resolves.toEqual([{ label: 'TABLES' }]);
+    expect(driver.searchItems).not.toHaveBeenCalledWith(ContextValue.TABLE, 'CACHED', expect.anything());
+
+    resolveSchemas([{ label: 'PUBLIC' }]);
+    resolveTables([{ label: 'FRESH_TABLE' }]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    await expect(connection.searchItems(ContextValue.TABLE, 'CACHED')).resolves.toEqual([{ label: 'FRESH' }]);
+    expect(driver.searchItems).toHaveBeenCalledWith(ContextValue.TABLE, 'CACHED', {});
+  });
+
+  it('retains the previous cache when schema and table warm-up fails', async () => {
+    await connection.searchItems(ContextValue.TABLE, 'CACHED');
+    await connection.connect();
+    await connection.close();
+
+    driver.searchItems = jest.fn((itemType: ContextValue) => {
+      if (itemType === ContextValue.SCHEMA) return Promise.reject(new Error('warm-up failed'));
+      return Promise.resolve([{ label: 'FRESH_TABLE' }]);
+    });
+    connection = new Connection({ id: `cache-test-${connectionId}`, driver: 'cache-test' } as any, jest.fn());
+
+    await connection.connect();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await expect(connection.searchItems(ContextValue.TABLE, 'CACHED')).resolves.toEqual([{ label: 'TABLES' }]);
+    expect(driver.searchItems).not.toHaveBeenCalledWith(ContextValue.TABLE, 'CACHED', expect.anything());
+  });
+
+  it('restores warmed schema and table suggestions from disk after a server restart', async () => {
+    driver.searchItems = jest.fn(async (itemType: ContextValue) => [
+      { label: itemType === ContextValue.SCHEMA ? 'PUBLIC' : 'TABLES' },
+    ]);
+    await connection.connect();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await (Connection as any).persistenceQueue;
+
+    (Connection as any).completionSnapshots.clear();
+    (Connection as any).completionSnapshotsLoaded = false;
+    driver.searchItems = jest.fn(async () => [{ label: 'NETWORK_RESULT' }]);
+    connection = new Connection({ id: `cache-test-${connectionId}`, driver: 'cache-test' } as any, jest.fn());
+
+    await expect(connection.searchItems(ContextValue.TABLE, 'TAB')).resolves.toEqual([{ label: 'TABLES' }]);
+    expect(driver.searchItems).not.toHaveBeenCalled();
   });
 
   it('does not let a pre-reset failure evict a newer request', async () => {
