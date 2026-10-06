@@ -5,7 +5,6 @@ import { ContextValue, IConnection, IExtension, IExtensionPlugin, ILanguageClien
 import Config from '@sqltools/util/config-manager';
 import { getConnectionDescription, getConnectionId, getSessionBasename, migrateConnectionSettings } from '@sqltools/util/connection';
 import { EXT_CONFIG_NAMESPACE, EXT_NAMESPACE } from '@sqltools/util/constants';
-import generateId from '@sqltools/util/internal-id';
 import { default as logger, createLogger } from '@sqltools/log/src';
 import { getDataPath, SESSION_FILES_DIRNAME } from '@sqltools/util/path';
 import { extractConnName, getQueryParameters, extractCommentVariables } from '@sqltools/util/query';
@@ -23,6 +22,8 @@ import { ConnectRequest, DisconnectRequest, ForceListRefresh, GetChildrenForTree
 import DependencyManager from './dependency-manager/extension';
 import { getExtension, resolveConnection } from './extension-util';
 import statusBar from './status-bar';
+import QueryExecutionTracker from './query-execution-tracker';
+import getResultsRequestId from './results-request-id';
 
 /**
  * Simple glob matcher: supports * as a wildcard, case-insensitive.
@@ -50,6 +51,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   private errorHandler: IExtension['errorHandler'];
   private explorer: ConnectionExplorer;
   private codeLensPlugin: CodeLensPlugin;
+  private queryExecutionTracker = new QueryExecutionTracker();
 
   // extension commands
   private ext_refreshTree = (connIdOrTreeItem: SidebarConnection | SidebarConnection[]) => {
@@ -306,13 +308,30 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
         await this._connect();
       }
 
-      const conn = await this.explorer.getActive()
+      const conn = await this.explorer.getActive();
+      if (!conn) {
+        throw new Error('No active connection is available to execute the query.');
+      }
       query = await this.replaceParams(query, conn);
-      
-      const view = await this._openResultsWebview(conn && conn.id, opt.requestId);
-      const payload = await this._runConnectionCommandWithArgs('query', query, { ...opt, requestId: view.requestId });
-      this.updateViewResults(view, payload);
-      return payload;
+
+      const connectionId = getConnectionId(conn);
+      if (!connectionId) {
+        throw new Error('Could not resolve the active connection ID to execute the query.');
+      }
+
+      const hasConcurrentQuery = this.queryExecutionTracker.start(connectionId);
+      try {
+        const view = await this._openResultsWebview(connectionId, opt.requestId, hasConcurrentQuery);
+        const payload = await this.client.sendRequest(RunCommandRequest, {
+          conn,
+          command: 'query',
+          args: [query, { ...opt, requestId: view.requestId }],
+        });
+        this.updateViewResults(view, payload);
+        return payload;
+      } finally {
+        this.queryExecutionTracker.finish(connectionId);
+      }
     } catch (e) {
       this.errorHandler('Error fetching records.', e);
     }
@@ -559,8 +578,8 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   }
 
 
-  private async _openResultsWebview(connId: string, reUseId: string) {
-    const requestId = reUseId || (Config.results.reuseTabs === 'connection' ? connId : generateId());
+  private async _openResultsWebview(connId: string, reUseId?: string, forceNew = false) {
+    const requestId = getResultsRequestId(connId, reUseId, Config.results.reuseTabs, forceNew);
     const view = this.resultsWebview.get(requestId);
     view.onDidDispose(() => {
       this.client.sendRequest(ReleaseResultsRequest, { connId, requestId });

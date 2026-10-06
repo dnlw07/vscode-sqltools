@@ -142,6 +142,23 @@ describe('connection completion cache', () => {
     expect(driver.searchItems).not.toHaveBeenCalled();
   });
 
+  it('keeps the previous cache file when a snapshot exceeds the persistence limit', async () => {
+    const previousCache = '{"version":1,"snapshots":[{"id":"previous"}]}';
+    fs.writeFileSync(cachePath, previousCache, 'utf8');
+    (Connection as any).completionSnapshots.set('oversized-cache-test', new Map([
+      [JSON.stringify([ContextValue.TABLE, '']), Promise.resolve([{ label: 'A'.repeat(100) }])],
+    ]));
+    const maxBytes = (Connection as any).maxPersistedCompletionCacheBytes;
+    (Connection as any).maxPersistedCompletionCacheBytes = 1;
+
+    try {
+      await (connection as any).persistCompletionSnapshot();
+      expect(fs.readFileSync(cachePath, 'utf8')).toBe(previousCache);
+    } finally {
+      (Connection as any).maxPersistedCompletionCacheBytes = maxBytes;
+    }
+  });
+
   it('does not let a pre-reset failure evict a newer request', async () => {
     let rejectPending!: (error: Error) => void;
     driver.searchItems.mockImplementationOnce(() => new Promise((_resolve, reject) => {

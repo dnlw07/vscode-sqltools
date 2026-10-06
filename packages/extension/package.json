@@ -781,7 +781,7 @@
                 },
                 "sqltools.results.reuseTabs": {
                     "type": "string",
-                    "description": "How requests reuse results tabs.",
+                    "description": "How requests reuse results tabs. Concurrent queries always use separate results tabs.",
                     "default": "never",
                     "enum": [
                         "never",
@@ -789,7 +789,7 @@
                     ],
                     "enumDescriptions": [
                         "Every request creates a new tab.",
-                        "There is a single tab for each connection."
+                        "Reuse one tab per connection when queries are not running concurrently."
                     ]
                 },
                 "sqltools.results.location": {

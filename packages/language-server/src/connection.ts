@@ -19,7 +19,7 @@ type CompletionCache = Map<string, Promise<any>>;
 export default class Connection {
   private static readonly completionSnapshots = new Map<string, CompletionCache>();
   private static readonly maxCompletionSnapshots = 50;
-  private static readonly maxPersistedCompletionCacheBytes = 10 * 1024 * 1024;
+  private static readonly maxPersistedCompletionCacheBytes = 25 * 1024 * 1024;
   private static completionSnapshotsLoaded = false;
   private static persistenceQueue: Promise<void> = Promise.resolve();
   private static readonly completionSnapshotPath = getDataPath('autosuggestions.json');
