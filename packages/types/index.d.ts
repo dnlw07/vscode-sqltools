@@ -378,7 +378,7 @@ export interface IConnectionDriver {
    * @param text The full query text
    * @param currentOffset The position in the query where the completion is requested.
   */
-  getCompletionsForRawQuery?(text: string, currentOffset: number): Promise<CompletionItem[]>;
+  getCompletionsForRawQuery?(text: string, currentOffset: number): Promise<CompletionItem[] | import('vscode-languageserver').CompletionList | null>;
 }
 
 export declare enum ContextValue {

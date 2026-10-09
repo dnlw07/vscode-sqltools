@@ -9,6 +9,8 @@ order: 10
 
 ### Unreleased
 
+- Accept driver-provided completion lists and retain their incomplete/loading flag, while continuing to support completion arrays and enforce the display limit. Used by BigQuery's background autocomplete catalog.
+
 - Show schema/database suggestions before tables in table-name completion, including when the list is capped. After a schema qualifier is selected, show table suggestions without repeating schemas.
 
 - Fix Db2 column completion after expressions using a `TABLE` column and in either branch of `EXCEPT` queries. Compatibility handling is limited to completion parsing; editor SQL is unchanged.

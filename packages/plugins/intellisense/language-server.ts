@@ -207,8 +207,13 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       // First try connection's getCompletionsForRawQuery method if the connection supports it
       const connectionCompletions = await conn.getCompletionsForRawQuery(text, currentOffset);
       if (connectionCompletions !== null) {
-        log.info('Got completions from the raw query, count: %d', connectionCompletions.length);
-        return createCompletionList(connectionCompletions);
+        if (Array.isArray(connectionCompletions)) {
+          log.info('Got completions from the raw query, count: %d', connectionCompletions.length);
+          return createCompletionList(connectionCompletions);
+        }
+        const limited = createCompletionList(connectionCompletions.items);
+        limited.isIncomplete = limited.isIncomplete || connectionCompletions.isIncomplete;
+        return limited;
       }
 
       // Fallback to hue AST-based completions

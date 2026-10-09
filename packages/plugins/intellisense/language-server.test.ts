@@ -2,6 +2,7 @@ import { ContextValue, NSDatabase } from '@sqltools/types';
 import Connection from '@sqltools/language-server/src/connection';
 import IntellisensePlugin from './language-server';
 import { MAX_OBJECT_COMPLETIONS, COMPLETION_LOOKAHEAD } from './completion-list';
+import { TextDocument } from 'vscode-languageserver-textdocument';
 
 jest.mock('@sqltools/language-server/src/connection', () => ({
   __esModule: true,
@@ -63,6 +64,40 @@ describe('schema-first table completion', () => {
       { database: 'Z_SCHEMA' }, COMPLETION_LOOKAHEAD);
     expect(result.items.filter(item => item.detail === 'Schema')).toEqual([]);
     expect(result.items[0].label).toBe('A_TABLE_0');
+  });
+
+  describe('driver completion lists', () => {
+    it.each([true, false])('preserves driver loading/truncation state: %s', async isIncomplete => {
+      const plugin = new IntellisensePlugin();
+      const document = TextDocument.create('file:///query.sql', 'sql', 1, 'SELECT * FROM ');
+      Object.defineProperty(plugin, 'server', { value: { docManager: { get: () => document } } });
+      const conn = new Connection({
+        driver: 'BigQuery', name: 'test', username: 'test',
+        id: 'test', isConnected: true, isActive: true,
+      }, jest.fn());
+      conn.getCompletionsForRawQuery = jest.fn().mockResolvedValue({
+        items: [{ label: 'dataset.' }], isIncomplete,
+      });
+      plugin['getQueryData'] = jest.fn().mockResolvedValue({ conn, text: document.getText(), currentOffset: 14, currentWord: '' });
+      const result = await plugin['onCompletion']({ textDocument: { uri: document.uri }, position: document.positionAt(14) }, undefined, undefined);
+      expect(result).toEqual({ items: [{ label: 'dataset.' }], isIncomplete });
+    });
+
+    it.each(['array', 'list'])('still caps oversized %s driver responses', async shape => {
+      const plugin = new IntellisensePlugin();
+      const document = TextDocument.create('file:///query.sql', 'sql', 1, 'SELECT * FROM ');
+      Object.defineProperty(plugin, 'server', { value: { docManager: { get: () => document } } });
+      const conn = new Connection({
+        driver: 'BigQuery', name: 'test', username: 'test',
+        id: 'test', isConnected: true, isActive: true,
+      }, jest.fn());
+      const items = Array.from({ length: 501 }, (_, index) => ({ label: `table_${index}` }));
+      conn.getCompletionsForRawQuery = jest.fn().mockResolvedValue(shape === 'array'
+        ? items : { items, isIncomplete: false });
+      plugin['getQueryData'] = jest.fn().mockResolvedValue({ conn, text: document.getText(), currentOffset: 14, currentWord: '' });
+      const result = await plugin['onCompletion']({ textDocument: { uri: document.uri }, position: document.positionAt(14) }, undefined, undefined);
+      expect(result).toEqual({ items: items.slice(0, 500), isIncomplete: true });
+    });
   });
 
   it('retains schemas before applying the object completion limit', async () => {

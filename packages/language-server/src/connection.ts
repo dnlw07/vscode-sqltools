@@ -407,7 +407,7 @@ export default class Connection {
     }
   }
 
-  public getCompletionsForRawQuery(text: string, currentOffset: number): Promise<CompletionItem[] | null> {
+  public getCompletionsForRawQuery(text: string, currentOffset: number): Promise<CompletionItem[] | import('vscode-languageserver').CompletionList | null> {
     if (typeof this.conn.getCompletionsForRawQuery !== 'function') return Promise.resolve(null);
     return this.conn.getCompletionsForRawQuery(text, currentOffset);
   }
