@@ -2,7 +2,7 @@ import { CompletionItem, CompletionItemKind, Range } from 'vscode-languageserver
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { ContextValue } from '@sqltools/types';
 import Connection from '@sqltools/language-server/src/connection';
-import sqlAutocompleteParser from 'gethue/parsers/genericAutocompleteParser.js';
+import { parseSqlForCompletion } from './sql-completion-parser';
 
 interface WildcardLocation {
   type: string;
@@ -16,14 +16,14 @@ interface WildcardLocation {
 export async function getWildcardCompletion(
   document: TextDocument,
   currentOffset: number,
-  conn: Pick<Connection, 'searchItems' | 'getChildrenForItem'>
+  conn: Pick<Connection, 'searchItems' | 'getChildrenForItem'> & Partial<Pick<Connection, 'getDriver'>>
 ): Promise<CompletionItem | undefined> {
   const text = document.getText();
   const starOffset = text[currentOffset - 1] === '*' ? currentOffset - 1
     : text[currentOffset] === '*' ? currentOffset : -1;
   if (starOffset < 0) return;
 
-  const ast = sqlAutocompleteParser.parseSql(text.slice(0, starOffset + 1), text.slice(starOffset + 1));
+  const ast = parseSqlForCompletion(text, starOffset + 1, conn.getDriver?.());
   const locations: WildcardLocation[] = ast.locations || [];
   const wildcard = locations.find(location => location.type === 'asterisk'
     && document.offsetAt({

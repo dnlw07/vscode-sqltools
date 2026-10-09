@@ -46,6 +46,28 @@ describe('wildcard column expansion', () => {
     expect(item.detail).toContain('650 columns');
   });
 
+  it.each([
+    'SELECT *| FROM qdr00687.employees WHERE TABLE = 1;',
+    'SELECT *| FROM qdr00687.employees EXCEPT SELECT TABLE FROM other.employees;',
+    'SELECT TABLE FROM other.employees EXCEPT SELECT *| FROM qdr00687.employees;',
+    'SELECT TABLE FROM other.employees EXCEPT ALL\nSELECT e.*| FROM qdr00687.employees e;',
+  ])('expands a Db2 wildcard with TABLE and EXCEPT: %s', async query => {
+    const { document, offset, conn } = setup(query);
+    const item = await getWildcardCompletion(document, offset, {
+      ...conn, getDriver: () => 'Db2 Driver for SQLTools',
+    });
+    const qualifier = query.includes('e.*') ? 'e.' : '';
+    expect(item.textEdit.newText).toBe(`${qualifier}EMPLOYEE_ID, ${qualifier}FIRST_NAME`);
+    expect(conn.searchItems).toHaveBeenCalledWith(ContextValue.TABLE, 'employees', {
+      database: 'qdr00687', limit: 2147483647,
+    });
+    const star = query.indexOf('*');
+    expect(item.textEdit.range).toEqual({
+      start: document.positionAt(star - qualifier.length),
+      end: document.positionAt(star + 1),
+    });
+  });
+
   it('preserves column metadata order and removes duplicate metadata rows', async () => {
     const { document, offset, conn } = setup('SELECT *| FROM qdr00687.employees;', ['Z', 'A', 'Z']);
     const item = await getWildcardCompletion(document, offset, conn);

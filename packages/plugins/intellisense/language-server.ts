@@ -5,7 +5,7 @@ import connectionStateCache, { LAST_USED_ID_KEY, ACTIVE_CONNECTIONS_KEY } from '
 import Connection from '@sqltools/language-server/src/connection';
 import { TableCompletionItem, TableColumnCompletionItem, DatabaseCompletionItem } from './models';
 import { createLogger } from '@sqltools/log/src';
-import sqlAutocompleteParser from 'gethue/parsers/genericAutocompleteParser.js';
+import { parseSqlForCompletion } from './sql-completion-parser';
 import { COMPLETION_LOOKAHEAD, createCompletionList } from './completion-list';
 import { getWildcardCompletion } from './wildcard-completion';
 
@@ -109,8 +109,8 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     return [];
   }
 
-  private getHueAst(text: string, currentOffset:number) {
-    return sqlAutocompleteParser.parseSql(text.substring(0, currentOffset), text.substring(currentOffset));
+  private getHueAst(text: string, currentOffset:number, driver?: string) {
+    return parseSqlForCompletion(text, currentOffset, driver);
   }
 
   private getKeywordsCompletion(hueAst: any, currentWord: string): CompletionItem[] {
@@ -136,7 +136,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       dbs: []
     };
 
-    const hueAst = this.getHueAst(text, currentOffset);
+    const hueAst = this.getHueAst(text, currentOffset, conn?.getDriver());
 
     completionsMap.query = this.getKeywordsCompletion(hueAst, currentWord);
     const visitedKeywords: [string] = (hueAst.suggestKeywords || []).map(kw => kw.value)

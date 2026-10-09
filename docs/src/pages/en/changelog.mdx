@@ -7,6 +7,11 @@ order: 10
 
 ## v0.28
 
+### Unreleased
+
+- Fix Db2 column completion after expressions using a `TABLE` column and in either branch of `EXCEPT` queries. Compatibility handling is limited to completion parsing; editor SQL is unchanged.
+- Expand Db2 completion-parser tests to cover CTE metadata, `FETCH FIRST`, `WITH UR`, window functions, and set operations. Separate characterization tests document existing limitations in unaliased `FETCH FIRST`, `FINAL TABLE`, `MERGE`, window `ROWS` frames, and `INTERSECT`; these tests do not imply full Db2 syntax support or live-server validation.
+
 ### v0.28.41 - (Oct 9, 2026)
 
 - Add **SQLTools: Generate DDL** in the command palette and beside **Describe Table** in a table's context menu. Select a connection/table and open the generated script in a new, unsaved SQL editor; nothing is executed automatically. Requires a driver implementing the optional table-DDL hook (initially the Db2 driver). Other drivers report an explicit unsupported-operation error. Db2 generation is a logical export including columns, constraints, ordinary indexes, and table grants, not a `db2look` backup; unsupported logical definitions fail explicitly.
