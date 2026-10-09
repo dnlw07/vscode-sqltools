@@ -29,10 +29,13 @@ export async function quickPick<T = QuickPickItem | any>(
   const qPick = window.createQuickPick();
   const sel = await new Promise<QuickPickItem | any>(resolve => {
     const { placeHolderDisabled, ...qPickOptions } = quickPickOptions || ({} as ExtendedQuickPickOptions);
-    qPick.onDidHide(() => qPick.dispose());
+    qPick.onDidHide(() => {
+      resolve(undefined);
+      qPick.dispose();
+    });
     qPick.onDidChangeSelection((selection = []) => {
+      resolve(qPickOptions.canPickMany ? selection : selection[0]);
       qPick.hide();
-      return resolve(qPickOptions.canPickMany ? selection : selection[0]);
     });
     qPick.onDidTriggerButton((btn: any) => {
       if (btn.cb) btn.cb();
@@ -64,9 +67,10 @@ export async function quickPickSearch<T = any>(
 ): Promise<T> {
   const qPick = window.createQuickPick();
   qPick.placeholder = qPick.placeholder || 'Type something to search...';
-  const sel = await new Promise<any[]>(resolve => {
+  const sel = await new Promise<any[]>((resolve, reject) => {
     const { placeHolderDisabled, debounceTime = 150, ignoreIfEmpty = false, ...qPickOptions } = quickPickOptions;
     let searchTimeout = null;
+    let hidden = false;
     const onChangeValue = (search = '') => {
       qPick.busy = true;
       if (ignoreIfEmpty && (!search || !search.trim())) {
@@ -76,31 +80,33 @@ export async function quickPickSearch<T = any>(
       }
       clearInterval(searchTimeout);
       searchTimeout = setTimeout(() => {
-        const getOptsPromise = loadOptions(search);
         const catchFn = error => {
-          qPick.items = [];
-          qPick.busy = false;
-          qPick.title = `${qPickOptions.title || 'Items'} (${qPick.items.length})`;
+          if (hidden) return;
           log.error('search error: %O', error);
-          return Promise.reject(error);
+          reject(error);
+          qPick.hide();
         };
         const thenFn = (options: any[]) => {
+          if (hidden) return;
           qPick.busy = false;
           qPick.items = options.length > 0 && typeof options[0] === 'object'
             ? <QuickPickItem[]>options.map(o => ({ ...o, value: o, label: o.value || o.label }))
             : options.map<QuickPickItem>(value => ({ value, label: value.toString() }));
           qPick.title = `${qPickOptions.title || 'Items'} (${qPick.items.length})`;
         };
-        if (getOptsPromise instanceof Promise || typeof getOptsPromise['catch'] === 'function') (<Promise<any>>getOptsPromise).then(thenFn).catch(catchFn);
-        else getOptsPromise.then(thenFn, catchFn);
+        Promise.resolve().then(() => loadOptions(search)).then(thenFn).catch(catchFn);
       }, debounceTime);
     };
     qPick.onDidChangeValue(onChangeValue);
-    qPick.onDidHide(() => qPick.dispose());
-    qPick.onDidChangeSelection((selection: (QuickPickItem & { value: any })[] = []) => {
-      qPick.hide();
-      resolve(selection.map(s => s.value));
+    qPick.onDidHide(() => {
+      hidden = true;
+      clearTimeout(searchTimeout);
+      resolve(undefined);
       qPick.dispose();
+    });
+    qPick.onDidChangeSelection((selection: (QuickPickItem & { value: any })[] = []) => {
+      resolve(selection.map(s => s.value));
+      qPick.hide();
     });
     qPick.onDidTriggerButton((btn: any) => {
       if (btn.cb)

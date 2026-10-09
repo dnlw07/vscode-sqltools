@@ -7,6 +7,10 @@ order: 10
 
 ## v0.28
 
+### Unreleased
+
+- Add **SQLTools: Generate DDL** in the command palette and beside **Describe Table** in a table's context menu. Select a connection/table and open the generated script in a new, unsaved SQL editor; nothing is executed automatically. Requires a driver implementing the optional table-DDL hook (initially the Db2 driver). Other drivers report an explicit unsupported-operation error. Db2 generation is a logical export including columns, constraints, ordinary indexes, and table grants, not a `db2look` backup; unsupported logical definitions fail explicitly.
+
 ### v0.28.40 - (Oct 7, 2026)
 
 - Select `*` in a single-table `SELECT`, press Ctrl+Space, and accept **Expand * to all columns** with Enter or Tab to insert a comma-separated column list. Qualified wildcards such as `e.*` retain the qualifier on every column. Column names are inserted without automatic quotes, and the list is not capped by normal completion limits. Names requiring quotes (such as reserved words or names containing spaces) must be quoted manually. Requires an active connection and catalog metadata; unqualified multi-table wildcards, CTEs, and derived tables are not expanded.

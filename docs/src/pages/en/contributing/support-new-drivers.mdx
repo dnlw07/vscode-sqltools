@@ -59,6 +59,14 @@ help us to keep the code organized.
 
 Check those files and try to update accortdingly to your needs.
 
+#### Optional table DDL generation
+
+Implement `generateTableDDL(table: NSDatabase.ITable): Promise<string>` to support **SQLTools: Generate DDL**. This optional `IConnectionDriver` hook is separate from `getDefinitionForItem`; existing drivers and **Generate Definition Query** are unchanged.
+
+Use the supplied table's catalog identifiers and return a nonempty, semicolon-terminated logical SQL script. Load complete catalog metadata without applying result preview/pagination limits. Reject permissions errors, missing metadata, and unsupported logical features explicitly instead of returning empty or partial DDL. Document any export limitations in the driver's README.
+
+SQLTools routes the request to the selected connection and opens the script in an unsaved SQL editor. The hook must only read metadata: do not execute the generated DDL or modify the database.
+
 ### 3. Creating connection schema for the assistant
 
 We are using `@rjsf/core` to render the forms, so in order to add you driver to the connection assistant,

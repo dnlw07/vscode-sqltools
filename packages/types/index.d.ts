@@ -346,6 +346,13 @@ export interface IConnectionDriver {
    */
   getDefinitionForItem?(params: { item: NSDatabase.DefinableItem }): Promise<string>;
   /**
+   * Generate a logical table DDL script without executing it.
+   * Optional: drivers that do not implement this hook remain compatible.
+   * Return nonempty, semicolon-terminated SQL or reject on unsupported features
+   * and incomplete catalog metadata; do not return partial or placeholder DDL.
+   */
+  generateTableDDL?(table: NSDatabase.ITable): Promise<string>;
+  /**
    * Get an INSERT query for item
    */
   getInsertQuery?(params: { item: NSDatabase.ITable, columns: Array<NSDatabase.IColumn> }): Promise<string>;

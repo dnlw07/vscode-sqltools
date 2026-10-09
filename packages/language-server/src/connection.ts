@@ -191,6 +191,23 @@ export default class Connection {
     return `-- Not supported by ${this.getDriver()}`;
   }
 
+  public async generateTableDDL(table: NSDatabase.ITable): Promise<string> {
+    if (!table || table.type !== ContextValue.TABLE || !table.label || !table.label.trim()) {
+      throw new Error('Generate DDL requires a table.');
+    }
+    if (!this.isConnected()) {
+      throw new Error('Connect to the database before generating DDL.');
+    }
+    if (typeof this.conn.generateTableDDL !== 'function') {
+      throw new Error(`Generate DDL is not supported by ${this.getDriver()}.`);
+    }
+    const ddl = await this.conn.generateTableDDL(table).catch(this.decorateException);
+    if (typeof ddl !== 'string' || !ddl.trim()) {
+      throw new Error(`No table DDL was returned by ${this.getDriver()}.`);
+    }
+    return ddl;
+  }
+
   public getInsertQuery(params: { item: NSDatabase.ITable; columns: Array<NSDatabase.IColumn> }) {
     if (this.conn.getInsertQuery && typeof this.conn.getInsertQuery === 'function') {
       return this.conn.getInsertQuery(params);

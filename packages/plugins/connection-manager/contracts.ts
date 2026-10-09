@@ -88,6 +88,13 @@ export const GetInsertQueryRequest = new RequestType<
   void
 >('connection/GetInsertQueryRequest');
 
+export const GenerateTableDDLRequest = new RequestType<
+  { conn: IConnection; table: NSDatabase.ITable },
+  string,
+  Error,
+  void
+>('connection/GenerateTableDDLRequest');
+
 
 // @OPTIMIZE: later this will be replace by the native library when available
 export interface ProgressNotificationStartParams {

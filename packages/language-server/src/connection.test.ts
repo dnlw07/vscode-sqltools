@@ -1,7 +1,7 @@
 import Connection from './connection';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import LSContext from './context';
-import { ContextValue } from '@sqltools/types';
+import { ContextValue, NSDatabase } from '@sqltools/types';
 import fs from 'fs';
 
 jest.mock('./context', () => ({ __esModule: true, default: { drivers: new Map() } }));
@@ -38,6 +38,52 @@ describe('connection completion cache', () => {
 
   afterAll(() => {
     if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+  });
+
+  describe('table DDL driver delegation', () => {
+    const table: NSDatabase.ITable = {
+      label: 'MixedCase', schema: 'App', database: 'DB', type: ContextValue.TABLE, isView: false,
+    };
+
+    it('rejects disconnected connections before calling the driver', async () => {
+      driver.generateTableDDL = jest.fn(async () => 'CREATE TABLE "App"."MixedCase" ("ID" INTEGER);');
+      await expect(connection.generateTableDDL(table)).rejects.toThrow('Connect to the database');
+      expect(driver.generateTableDDL).not.toHaveBeenCalled();
+    });
+
+    it('keeps old drivers compatible and explicitly reports missing DDL support', async () => {
+      await connection.connect();
+      await expect(connection.generateTableDDL(table)).rejects.toThrow('not supported by');
+    });
+
+    it('passes exact catalog identifiers to the optional hook', async () => {
+      const ddl = 'CREATE TABLE "App"."MixedCase" ("ID" INTEGER);';
+      driver.generateTableDDL = jest.fn(async () => ddl);
+      await connection.connect();
+      await expect(connection.generateTableDDL(table)).resolves.toBe(ddl);
+      expect(driver.generateTableDDL).toHaveBeenCalledWith(table);
+    });
+
+    it('rejects views even when the driver implements the hook', async () => {
+      driver.generateTableDDL = jest.fn(async () => 'CREATE VIEW v AS SELECT 1;');
+      await connection.connect();
+      const view = { ...table };
+      Object.defineProperty(view, 'type', { value: ContextValue.VIEW });
+      await expect(connection.generateTableDDL(view)).rejects.toThrow('requires a table');
+      expect(driver.generateTableDDL).not.toHaveBeenCalled();
+    });
+
+    it('rejects empty DDL returned by the driver', async () => {
+      driver.generateTableDDL = jest.fn(async () => ' \n ');
+      await connection.connect();
+      await expect(connection.generateTableDDL(table)).rejects.toThrow('No table DDL');
+    });
+
+    it('propagates actual driver failures', async () => {
+      driver.generateTableDDL = jest.fn(async () => { throw new Error('Catalog permission denied'); });
+      await connection.connect();
+      await expect(connection.generateTableDDL(table)).rejects.toThrow('Catalog permission denied');
+    });
   });
 
   it('deduplicates concurrent and repeated searches with equivalent contexts', async () => {

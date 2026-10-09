@@ -3,7 +3,7 @@ import ConfigRO from '@sqltools/util/config-manager';
 import { IConnection, ILanguageServerPlugin, ILanguageServer, RequestHandler } from '@sqltools/types';
 import { getConnectionId, migrateConnectionSetting } from '@sqltools/util/connection';
 import csvStringify from 'csv-stringify/lib/sync';
-import { ConnectRequest, DisconnectRequest, SearchConnectionItemsRequest, GetConnectionPasswordRequest, GetConnectionsRequest, RunCommandRequest, GetResultsRequest, ProgressNotificationStart, ProgressNotificationComplete, TestConnectionRequest, GetChildrenForTreeItemRequest, ForceListRefresh, GetInsertQueryRequest, GetDefinitionQueryForItemRequest, ReleaseResultsRequest } from './contracts';
+import { ConnectRequest, DisconnectRequest, SearchConnectionItemsRequest, GetConnectionPasswordRequest, GetConnectionsRequest, RunCommandRequest, GetResultsRequest, ProgressNotificationStart, ProgressNotificationComplete, TestConnectionRequest, GetChildrenForTreeItemRequest, ForceListRefresh, GetInsertQueryRequest, GetDefinitionQueryForItemRequest, GenerateTableDDLRequest, ReleaseResultsRequest } from './contracts';
 import Handlers from './cache/handlers';
 import decorateLSException from '@sqltools/util/decorators/ls-decorate-exception';
 import { createLogger } from '@sqltools/log/src';
@@ -257,6 +257,13 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
     return c.getInsertQuery(params);
   };
 
+  private generateTableDDLHandler: RequestHandler<typeof GenerateTableDDLRequest> = async (req) => {
+    if (!req || !req.conn) throw new Error('Generate DDL requires a connection.');
+    const connection = await this.getConnectionInstance(req.conn);
+    if (!connection) throw new Error('Connection not found. Connect to the database before generating DDL.');
+    return connection.generateTableDDL(req.table);
+  };
+
   public register(server: typeof ConnectionManagerPlugin.prototype['server']) {
     this.server = this.server || server;
 
@@ -272,6 +279,7 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
     this.server.onRequest(GetChildrenForTreeItemRequest, this.GetChildrenForTreeItemHandler);
     this.server.onRequest(GetDefinitionQueryForItemRequest, this.GetDefinitionQueryForItemHandler);
     this.server.onRequest(GetInsertQueryRequest, this.GetInsertQueryHandler);
+    this.server.onRequest(GenerateTableDDLRequest, this.generateTableDDLHandler);
     this.server.addOnDidChangeConfigurationHooks(() => this._autoConnectIfActive());
   }
 

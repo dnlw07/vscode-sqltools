@@ -218,6 +218,11 @@
                 "category": "SQLTools Connection"
             },
             {
+                "title": "Generate DDL",
+                "command": "sqltools.generateDDL",
+                "category": "SQLTools Connection"
+            },
+            {
                 "title": "Format Selected Query For Any Document",
                 "command": "sqltools.formatSql",
                 "category": "SQLTools"
@@ -1206,6 +1211,11 @@
                     "command": "sqltools.describeTable",
                     "when": "view == sqltoolsViewConnectionExplorer && viewItem =~ /^connection\\.(table|view)$/",
                     "group": "navigation@2"
+                },
+                {
+                    "command": "sqltools.generateDDL",
+                    "when": "view == sqltoolsViewConnectionExplorer && viewItem == connection.table",
+                    "group": "navigation@2.1"
                 },
                 {
                     "command": "sqltools.generateInsertQuery",

@@ -19,12 +19,14 @@ import { promises as fs } from 'fs';
 import { file } from 'tempy';
 import { CancellationTokenSource, commands, ConfigurationTarget, env as vscodeEnv, Progress, ProgressLocation, QuickPickItem, TextDocument, TextEditor, ThemeIcon, Uri, window, workspace } from 'vscode';
 import CodeLensPlugin from '../codelens/extension';
-import { ConnectRequest, DisconnectRequest, ForceListRefresh, GetChildrenForTreeItemRequest, GetConnectionPasswordRequest, GetConnectionsRequest, GetInsertQueryRequest, GetDefinitionQueryForItemRequest, ProgressNotificationComplete, ProgressNotificationCompleteParams, ProgressNotificationStart, ProgressNotificationStartParams, ReleaseResultsRequest, RunCommandRequest, GetResultsRequest, SearchConnectionItemsRequest, TestConnectionRequest } from './contracts';
+import { ConnectRequest, DisconnectRequest, ForceListRefresh, GetChildrenForTreeItemRequest, GetConnectionPasswordRequest, GetConnectionsRequest, GetInsertQueryRequest, GetDefinitionQueryForItemRequest, GenerateTableDDLRequest, ProgressNotificationComplete, ProgressNotificationCompleteParams, ProgressNotificationStart, ProgressNotificationStartParams, ReleaseResultsRequest, RunCommandRequest, GetResultsRequest, SearchConnectionItemsRequest, TestConnectionRequest } from './contracts';
 import DependencyManager from './dependency-manager/extension';
 import { getExtension, resolveConnection } from './extension-util';
 import statusBar from './status-bar';
 import QueryExecutionTracker from './query-execution-tracker';
 import getResultsRequestId from './results-request-id';
+import { generateDDL, selectDDLTarget } from './generate-ddl';
+import { openDDLDocument } from './generate-ddl-editor';
 
 /**
  * Simple glob matcher: supports * as a wildcard, case-insensitive.
@@ -138,6 +140,35 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     } catch (e) {
       this.errorHandler('Error while describing table records', e);
     }
+  }
+
+  private ext_generateDDL = async (node?: SidebarItem<NSDatabase.ITable> | NSDatabase.ITable) => {
+    return generateDDL({
+      selectTarget: () => selectDDLTarget({
+        conn: node instanceof SidebarItem ? node.conn : undefined,
+        table: node instanceof SidebarItem ? node.metadata : node,
+      }, {
+        connect: () => this._connect(),
+        setConnection: conn => this._setConnection(conn),
+        pickTable: conn => quickPickSearch<NSDatabase.ITable>(
+          search => this.client.sendRequest(SearchConnectionItemsRequest, {
+            conn, itemType: ContextValue.TABLE, search,
+          }).then(({ results }) => results.filter(item => item.type === ContextValue.TABLE)),
+          {
+            matchOnDescription: true,
+            matchOnDetail: true,
+            title: `Tables in ${conn.database || conn.name}`,
+            placeHolder: 'Select a table to generate DDL...',
+          }
+        ),
+      }),
+      requestDDL: target => this.client.sendRequest(GenerateTableDDLRequest, target),
+      withProgress: async (title, generate) => window.withProgress({
+        location: ProgressLocation.Notification, title, cancellable: false,
+      }, generate),
+      openSQL: openDDLDocument,
+      onError: (message, error) => this.errorHandler(message, error),
+    });
   }
 
   private ext_describeFunction() {
@@ -987,6 +1018,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       .registerCommand(`deleteConnection`, this.ext_deleteConnection)
       .registerCommand(`describeFunction`, this.ext_describeFunction)
       .registerCommand(`describeTable`, this.ext_describeTable)
+      .registerCommand(`generateDDL`, this.ext_generateDDL)
       .registerCommand(`executeFromInput`, this.ext_executeFromInput)
       .registerCommand(`executeQuery`, this.ext_executeQuery)
       .registerCommand(`executeCurrentQuery`, this.ext_executeCurrentQuery)
