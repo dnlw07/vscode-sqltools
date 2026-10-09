@@ -9,6 +9,8 @@ order: 10
 
 ### Unreleased
 
+- Show schema/database suggestions before tables in table-name completion, including when the list is capped. After a schema qualifier is selected, show table suggestions without repeating schemas.
+
 - Fix Db2 column completion after expressions using a `TABLE` column and in either branch of `EXCEPT` queries. Compatibility handling is limited to completion parsing; editor SQL is unchanged.
 - Expand Db2 completion-parser tests to cover CTE metadata, `FETCH FIRST`, `WITH UR`, window functions, and set operations. Separate characterization tests document existing limitations in unaliased `FETCH FIRST`, `FINAL TABLE`, `MERGE`, window `ROWS` frames, and `INTERSECT`; these tests do not imply full Db2 syntax support or live-server validation.
 

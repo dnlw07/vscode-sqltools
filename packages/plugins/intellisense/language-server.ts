@@ -58,12 +58,14 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     const prefix = (suggestDatabases.prependQuestionMark ? "? " : "") + (suggestDatabases.prependFrom ? "FROM " : "");
     const suffix = suggestDatabases.appendDot ? "." : "";
 
-    const dbs = await conn.searchItems(ContextValue.DATABASE, currentWord, {}, COMPLETION_LOOKAHEAD) as [NSDatabase.IDatabase];
+    const itemType = /^db2(?: driver for sqltools)?$/i.test(conn.getDriver()) ? ContextValue.SCHEMA : ContextValue.DATABASE;
+    const dbs = await conn.searchItems(itemType, currentWord, {}, COMPLETION_LOOKAHEAD) as [NSDatabase.IDatabase];
     log.info('got %d db completions', dbs && dbs.length);
     if (dbs && dbs.length > 0) {
       return dbs
         .map(d => ({
           ...DatabaseCompletionItem(d, 0),
+          detail: itemType === ContextValue.SCHEMA ? 'Schema' : 'Database',
           // filterText is used to sort after the initial completion query
           filterText: d.label.substring(d.label.toUpperCase().indexOf(currentWord)),
           label: prefix + d.label + suffix,
@@ -82,7 +84,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     if (tables.length > 0) {
       return tables
         .map(t => ({
-          ...TableCompletionItem(t, 0),
+          ...TableCompletionItem(t, 1),
           // filterText is used to sort after the initial completion query
           filterText: t.label.substring(t.label.toUpperCase().indexOf(currentWord)),
           label: prefix + t.label + suffix,
@@ -163,15 +165,16 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
     const [tableCompletions, columnCompletions, dbCompletions] = await Promise.all([
       (hueAst.suggestTables != undefined) ? this.getTableCompletions({ currentWord, conn, suggestTables: hueAst.suggestTables }) : [],
       (hueAst.suggestColumns != undefined) ? this.getColumnCompletions({ currentWord, conn, suggestColumns: hueAst.suggestColumns }) : [],
-      (hueAst.suggestDatabases != undefined) ? this.getDatabasesCompletions({ currentWord, conn, suggestDatabases: hueAst.suggestDatabases }) : [],
+      (hueAst.suggestDatabases != undefined && !hueAst.suggestTables?.identifierChain?.length)
+        ? this.getDatabasesCompletions({ currentWord, conn, suggestDatabases: hueAst.suggestDatabases }) : [],
     ]);
     completionsMap.tables = tableCompletions;
     completionsMap.columns = columnCompletions;
     completionsMap.dbs = dbCompletions;
 
     const objectCompletions = completionsMap.columns
-      .concat(completionsMap.tables)
-      .concat(completionsMap.dbs);
+      .concat(completionsMap.dbs)
+      .concat(completionsMap.tables);
 
     return createCompletionList(objectCompletions, completionsMap.query);
   }
