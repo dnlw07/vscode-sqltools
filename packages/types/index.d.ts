@@ -313,6 +313,8 @@ export interface IConnectionDriverConstructor {
   new(credentials: IConnection<any>, getWorkspaceFolders?: LSIConnection['workspace']['getWorkspaceFolders']): IConnectionDriver;
 }
 export interface IConnectionDriver {
+  /** Opt into complete schema/table catalogs and unpaged, table-scoped column lookups using completionCatalog: true. */
+  readonly supportsCompletionCatalog?: boolean;
   connection: any;
   credentials: IConnection<any>;
   open(): Promise<any>;
@@ -407,6 +409,8 @@ export module MConnectionExplorer {
   export interface IChildItem {
     type: ContextValue;
     label: string;
+    /** Original catalog identifier when the display label has been transformed. */
+    catalogLabel?: string;
     schema: string;
     database: string;
     /**

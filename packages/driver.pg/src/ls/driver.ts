@@ -16,6 +16,7 @@ types.setTypeParser((types as any).builtins.TIMESTAMPTZ || 1184, rawValue);
 types.setTypeParser((types as any).builtins.DATE || 1082, rawValue);
 
 export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> implements IConnectionDriver {
+  public readonly supportsCompletionCatalog = true;
   queries = Queries;
   public async open() {
     if (this.connection) {
@@ -535,7 +536,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
         return this.queryResults(this.queries.searchTables({ search, ...extraParams }));
       case ContextValue.DATABASE:
       case ContextValue.SCHEMA:
-        return this.queryResults(this.queries.searchSchemas({ search }));
+        return this.queryResults(this.queries.searchSchemas({ search, ...extraParams }));
       case ContextValue.COLUMN:
         return this.queryResults(this.queries.searchColumns({ search, ...extraParams }));
       case ContextValue.FUNCTION:

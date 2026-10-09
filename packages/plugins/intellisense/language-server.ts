@@ -65,9 +65,8 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       return dbs
         .map(d => ({
           ...DatabaseCompletionItem(d, 0),
-          detail: itemType === ContextValue.SCHEMA ? 'Schema' : 'Database',
           // filterText is used to sort after the initial completion query
-          filterText: d.label.substring(d.label.toUpperCase().indexOf(currentWord)),
+          filterText: d.label,
           label: prefix + d.label + suffix,
         }));
     }
@@ -86,7 +85,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
         .map(t => ({
           ...TableCompletionItem(t, 1),
           // filterText is used to sort after the initial completion query
-          filterText: t.label.substring(t.label.toUpperCase().indexOf(currentWord)),
+          filterText: t.label,
           label: prefix + t.label + suffix,
         }));
     }
@@ -105,7 +104,7 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       return columns.map(c => ({
         ...TableColumnCompletionItem(c, { driver: conn.getDriver(), addTable: suggestColumns.tables.length > 1 }),
         // filterText is used to sort after the initial completion query
-        filterText: c.label.substring(c.label.toUpperCase().indexOf(currentWord))
+        filterText: c.label
       }));
     }
     return [];

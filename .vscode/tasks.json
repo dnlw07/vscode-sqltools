@@ -4,7 +4,31 @@
 		{
 			"label": "Build SQLTools release VSIX",
 			"type": "shell",
-			"command": "$env:NODE_ENV='production'; Set-Location build-tools; node --max_old_space_size=8192 .\\node_modules\\webpack\\bin\\webpack.js --env pkg=extension; if ($LASTEXITCODE -eq 0) { Set-Location ..\\packages\\extension; & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-0.28.42.vsix }",
+			"command": "$env:NODE_ENV='production'; Set-Location build-tools; node --max_old_space_size=8192 .\\node_modules\\webpack\\bin\\webpack.js --env pkg=extension; if ($LASTEXITCODE -eq 0) { Set-Location ..\\packages\\extension; & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-0.28.43.vsix }",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build PostgreSQL release VSIX",
+			"type": "shell",
+			"command": "Set-Location packages\\driver.pg; npm run build:ext; if ($LASTEXITCODE -eq 0) { npm run build:ls; if ($LASTEXITCODE -eq 0) { 'y' | & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-driver-pg-0.5.13.vsix } }",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Db2 release VSIX",
+			"type": "shell",
+			"command": "Set-Location ..\\db2-sqltools; & .\\node_modules\\.bin\\vsce.cmd package --allow-star-activation --allow-missing-repository --skip-license -o db2-sqltools-0.0.25.vsix",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Oracle release VSIX",
+			"type": "shell",
+			"command": "Set-Location ..\\sqltools-Oracle-driver; npm run esbuild:ext; if ($LASTEXITCODE -eq 0) { npm run esbuild:ls; if ($LASTEXITCODE -eq 0) { & ..\\vscode-sqltools\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o sqltools-oracle-driver-0.1.23.vsix } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"

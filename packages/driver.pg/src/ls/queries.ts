@@ -122,7 +122,7 @@ WHERE
   )` : ''}
 ORDER BY
   T.TABLE_NAME
-LIMIT ${p => p.limit || 100};
+${(p: any) => p.completionCatalog ? '' : `LIMIT ${p.limit || 100}`};
 `;
 
 const searchSchemas: IBaseQueries['searchTables'] = queryFactory`
@@ -137,7 +137,7 @@ WHERE S.SCHEMA_NAME !~ '^pg_'
   AND S.SCHEMA_NAME <> 'information_schema'
   ${p => p.search ? `AND S.SCHEMA_NAME ILIKE '%${p.search}%'` : ''}
 ORDER BY S.SCHEMA_NAME
-LIMIT ${p => p.limit || 100};
+${(p: any) => p.completionCatalog ? '' : `LIMIT ${p.limit || 100}`};
 `;
 
 const searchColumns: IBaseQueries['searchColumns'] = queryFactory`
@@ -167,10 +167,14 @@ JOIN INFORMATION_SCHEMA.TABLES AS T ON C.TABLE_NAME = T.TABLE_NAME
 WHERE
   C.TABLE_SCHEMA !~ '^pg_'
   AND C.TABLE_SCHEMA <> 'information_schema'
-  ${p => p.tables.filter(t => !!t.label).length
+  ${(p: any) => !p.completionCatalog && p.tables.filter(t => !!t.label).length
     ? `AND LOWER(C.TABLE_NAME) IN (${p.tables.filter(t => !!t.label).map(t => `'${t.label}'`.toLowerCase()).join(', ')})`
     : ''
   }
+  ${(p: any) => p.completionCatalog && p.tables.length
+    ? `AND (${p.tables.map(t => `C.TABLE_NAME = '${(t.catalogResolved ? String(t.label) : String(t.label).toLowerCase()).replace(/'/g, "''")}'${
+      t.schema || t.database ? ` AND C.TABLE_SCHEMA = '${(t.catalogResolved ? String(t.schema || t.database) : String(t.schema || t.database).toLowerCase()).replace(/'/g, "''")}'` : ''
+    }`).map(condition => `(${condition})`).join(' OR ')})` : ''}
   ${p => p.search
     ? `AND (
       (C.TABLE_NAME || '.' || C.COLUMN_NAME) ILIKE '%${p.search}%'
@@ -181,7 +185,7 @@ WHERE
 ORDER BY
   C.TABLE_NAME,
   C.ORDINAL_POSITION
-LIMIT ${p => p.limit || 100}
+${(p: any) => p.completionCatalog ? '' : `LIMIT ${p.limit || 100}`}
 `;
 
 const fetchTables: IBaseQueries['fetchTables'] = fetchTablesAndViews(ContextValue.TABLE);

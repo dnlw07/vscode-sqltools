@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { getDataPath } from '@sqltools/util/path';
+import { matchesCompletionName } from './completion-matching';
 
 const log = createLogger('conn');
 
@@ -28,6 +29,14 @@ export default class Connection {
   private conn: IConnectionDriver;
   private completionCache: CompletionCache = new Map();
   private fallbackCompletionCache?: CompletionCache;
+  private catalogCache: CompletionCache = new Map();
+  private catalogLoading: CompletionCache = new Map();
+  private catalogRefresh?: Promise<void>;
+  private catalogRefreshedAt = 0;
+  private catalogRetryAt = 0;
+  private catalogGeneration = 0;
+  private columnRequests = 0;
+  private columnWaiters: (() => void)[] = [];
   constructor(private credentials: IConnection, getWorkspaceFolders: LSIconnection['workspace']['getWorkspaceFolders']) {
     const DriverClass = LSContext.drivers.get(credentials.driver);
     if (!DriverClass) {
@@ -58,7 +67,7 @@ export default class Connection {
     else
       await this.query('SELECT 1;', { throwIfError: true });
     this.connected = true;
-    void this.warmCompletionCache();
+    this.refreshCatalogInBackground();
   }
 
   public setPassword(password: string) {
@@ -76,10 +85,17 @@ export default class Connection {
     if (this.connected) {
       const snapshot = new Map(this.fallbackCompletionCache || []);
       this.completionCache.forEach((value, key) => snapshot.set(key, value));
+      this.catalogCache.forEach((value, key) => snapshot.set(key, value));
       this.saveCompletionSnapshot(snapshot);
     }
     this.fallbackCompletionCache = undefined;
     this.completionCache = new Map();
+    this.catalogCache = new Map();
+    this.catalogLoading = new Map();
+    this.catalogGeneration++;
+    this.catalogRefresh = undefined;
+    this.catalogRefreshedAt = 0;
+    this.catalogRetryAt = 0;
     if (this.needsPassword()) this.conn.credentials.password = undefined;
     this.connected = false;
     return this.conn.close();
@@ -286,7 +302,82 @@ export default class Connection {
   }
 
   public searchItems(itemType: ContextValue, search: string = '', extraParams = {}, maxResults?: number) {
+    if (this.conn.supportsCompletionCatalog &&
+      [ContextValue.TABLE, ContextValue.VIEW, ContextValue.SCHEMA, ContextValue.DATABASE, ContextValue.COLUMN].includes(itemType)) {
+      return this.searchCatalog(itemType, search, extraParams, maxResults);
+    }
     return this.searchItemsWithCache(itemType, search, extraParams, this.completionCache, true, maxResults);
+  }
+
+  private async searchCatalog(
+    itemType: ContextValue, search: string,
+    params: { database?: string; tables?: NSDatabase.ITable[] }, maxResults?: number
+  ): Promise<NSDatabase.SearchableItem[]> {
+    if (this.connected && Date.now() - this.catalogRefreshedAt >= 15 * 60 * 1000 &&
+      Date.now() >= this.catalogRetryAt) this.refreshCatalogInBackground();
+    let items: NSDatabase.SearchableItem[];
+    if (itemType === ContextValue.COLUMN) {
+      if (!params.tables?.length) throw new Error('Column completion requires a table context.');
+      const catalog = await this.getCatalog(ContextValue.TABLE);
+      const tables = params.tables.reduce((all, table) => {
+        const schema = table.schema || table.database;
+        const candidates = catalog.filter(item => item.label.toLowerCase() === table.label.toLowerCase() &&
+          (!schema || item.schema?.toLowerCase() === schema.toLowerCase()));
+        const exact = candidates.filter(item => (item.catalogLabel || item.label) === table.label &&
+          (!schema || item.schema === schema));
+        const matches = exact.length ? exact : candidates;
+        return all.concat(matches.length ? matches.map(item => ({
+          ...table,
+          label: item.catalogLabel || item.label,
+          schema: item.schema, database: item.schema, catalogResolved: true,
+        })) : [table]);
+      }, [] as (NSDatabase.ITable & { catalogResolved?: boolean })[]);
+      const groups = await Promise.all(tables.map(table => {
+        const context = { tables: [table], completionCatalog: true };
+        return this.cacheCompletion<NSDatabase.SearchableItem[]>(
+          this.completionKey(ContextValue.COLUMN, '', context),
+          () => this.loadColumns(context), this.completionCache, false);
+      }));
+      items = groups.reduce((all, group) => all.concat(group), []);
+    } else {
+      const type = itemType === ContextValue.SCHEMA || itemType === ContextValue.DATABASE
+        ? ContextValue.SCHEMA : ContextValue.TABLE;
+      items = await this.getCatalog(type);
+    }
+    const results: NSDatabase.SearchableItem[] = [];
+    for (const item of items) {
+      if (itemType === ContextValue.VIEW && item.type !== ContextValue.VIEW) continue;
+      if (itemType !== ContextValue.COLUMN && params.database &&
+        (item.schema || item.database || '').toLowerCase() !== params.database.toLowerCase()) continue;
+      if (!matchesCompletionName(item.label, search)) continue;
+      results.push({ ...item });
+      if (maxResults && results.length >= maxResults) break;
+    }
+    return results;
+  }
+
+  private getCatalog(type: ContextValue): Promise<NSDatabase.SearchableItem[]> {
+    const context = { completionCatalog: true };
+    const key = this.completionKey(type, '', context);
+    const cached = this.catalogCache.get(key) || this.fallbackCompletionCache?.get(key) || this.catalogLoading.get(key);
+    return cached || this.cacheCompletion(key, () => this.conn.searchItems(type, '', context), this.catalogCache, false);
+  }
+
+  private async loadColumns(context: { tables: NSDatabase.ITable[]; completionCatalog: boolean }) {
+    if (this.columnRequests >= 4) await new Promise<void>(resolve => this.columnWaiters.push(resolve));
+    else this.columnRequests++;
+    try {
+      return await this.conn.searchItems(ContextValue.COLUMN, '', context);
+    } finally {
+      const next = this.columnWaiters.shift();
+      if (next) next();
+      else this.columnRequests--;
+    }
+  }
+
+  public async refreshCompletionCatalog(): Promise<void> {
+    if (!this.connected) throw new Error('Connect to the database before refreshing autocomplete.');
+    await this.warmCompletionCache(true);
   }
 
   public getStaticCompletions: NonNullable<IConnectionDriver['getStaticCompletions']> = () => {
@@ -385,25 +476,49 @@ export default class Connection {
     return createHash('sha256').update(id).digest('hex');
   }
 
-  private async warmCompletionCache() {
+  private warmCompletionCache(force = false): Promise<void> {
+    if (this.catalogRefresh) return this.catalogRefresh;
+    const generation = this.catalogGeneration;
+    const pending = this.loadCompletionCatalog(generation, force).finally(() => {
+      if (this.catalogRefresh === pending) this.catalogRefresh = undefined;
+    });
+    this.catalogRefresh = pending;
+    return pending;
+  }
+
+  private refreshCatalogInBackground() {
+    void this.warmCompletionCache().catch(error => {
+      log.error('Failed to warm schema and table completion cache: %O', error);
+    });
+  }
+
+  private async loadCompletionCatalog(generation: number, force: boolean) {
     const warmingCache: CompletionCache = new Map();
+    this.catalogLoading = warmingCache;
     try {
+      const params = this.conn.supportsCompletionCatalog ? { completionCatalog: true } : {};
       await Promise.all([
-        this.searchItemsWithCache(ContextValue.SCHEMA, '', {}, warmingCache, false),
-        this.searchItemsWithCache(ContextValue.TABLE, '', {}, warmingCache, false),
+        this.searchItemsWithCache(ContextValue.SCHEMA, '', params, warmingCache, false),
+        this.searchItemsWithCache(ContextValue.TABLE, '', params, warmingCache, false),
       ]);
-      if (!this.connected) return;
+      if (!this.connected || generation !== this.catalogGeneration) return;
+      if (this.conn.supportsCompletionCatalog) this.catalogCache = new Map(warmingCache);
 
       const replacementCache = new Map(warmingCache);
-      this.completionCache.forEach((value, key) => {
+      if (!force && !this.conn.supportsCompletionCatalog) this.completionCache.forEach((value, key) => {
         if (!replacementCache.has(key)) replacementCache.set(key, value);
       });
       this.completionCache = replacementCache;
       this.fallbackCompletionCache = undefined;
+      this.catalogRefreshedAt = Date.now();
+      this.catalogRetryAt = 0;
       this.saveCompletionSnapshot(replacementCache);
       await this.persistCompletionSnapshot();
     } catch (error) {
-      log.error('Failed to warm schema and table completion cache: %O', error);
+      if (generation === this.catalogGeneration) this.catalogRetryAt = Date.now() + 60 * 1000;
+      throw error;
+    } finally {
+      if (this.catalogLoading === warmingCache) this.catalogLoading = new Map();
     }
   }
 

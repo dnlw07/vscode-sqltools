@@ -262,5 +262,162 @@ const cachePath = require('path').join(require('os').tmpdir(), `sqltools-autosug
         (0, globals_1.expect)(result.requestId).toEqual(globals_1.expect.any(String));
         (0, globals_1.expect)(result.connId).toBe('test-connection');
     });
+    (0, globals_1.describe)('complete driver catalogs', () => {
+        (0, globals_1.beforeEach)(() => {
+            driver.supportsCompletionCatalog = true;
+            driver.searchItems = globals_1.jest.fn(async (type, _search, context) => {
+                if (type === types_1.ContextValue.SCHEMA)
+                    return Array.from({ length: 500 }, (_, index) => ({
+                        label: index === 499 ? 'customer_order_history' : `SCHEMA_${index}`, type,
+                    }));
+                if (type === types_1.ContextValue.COLUMN)
+                    return [
+                        { label: 'customer_order_history', schema: context.tables[0].database, table: context.tables[0].label, type },
+                    ];
+                return Array.from({ length: 23000 }, (_, index) => ({
+                    label: index === 22999 ? 'customer_order_history' : `TABLE_${index}`,
+                    schema: index % 2 ? 'OTHER' : 'PUBLIC', type: types_1.ContextValue.TABLE,
+                }));
+            });
+        });
+        (0, globals_1.it)('loads once and filters before limiting, including abbreviated matches near the end', async () => {
+            const all = await connection.searchItems(types_1.ContextValue.TABLE, '', {}, 501);
+            (0, globals_1.expect)(all).toHaveLength(501);
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.TABLE, 'custhist')).toEqual([
+                globals_1.expect.objectContaining({ label: 'customer_order_history' }),
+            ]);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(1);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledWith(types_1.ContextValue.TABLE, '', { completionCatalog: true });
+        });
+        (0, globals_1.it)('uses the global table catalog for selected schemas without network fan-out', async () => {
+            await connection.searchItems(types_1.ContextValue.TABLE, '', { database: 'PUBLIC' }, 501);
+            const other = await connection.searchItems(types_1.ContextValue.TABLE, 'custhist', { database: 'OTHER' });
+            (0, globals_1.expect)(other).toHaveLength(1);
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.TABLE, 'custhist', { database: 'PUBLIC' })).toEqual([]);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(1);
+        });
+        (0, globals_1.it)('caches complete columns per table and preserves schema scope', async () => {
+            const tables = [{ label: 'EMPLOYEE', database: 'PUBLIC' }];
+            await connection.searchItems(types_1.ContextValue.COLUMN, '', { tables });
+            const found = await connection.searchItems(types_1.ContextValue.COLUMN, 'custhist', { tables });
+            (0, globals_1.expect)(found[0].label).toBe('customer_order_history');
+            await connection.searchItems(types_1.ContextValue.COLUMN, '', { tables: [{ label: 'EMPLOYEE', database: 'OTHER' }] });
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(3);
+        });
+        (0, globals_1.it)('limits concurrent on-demand column requests to four', async () => {
+            let active = 0;
+            let peak = 0;
+            driver.searchItems = globals_1.jest.fn(async (type) => {
+                if (type === types_1.ContextValue.TABLE)
+                    return [];
+                peak = Math.max(peak, ++active);
+                await new Promise(resolve => setTimeout(resolve, 0));
+                active--;
+                return [];
+            });
+            await connection.searchItems(types_1.ContextValue.COLUMN, '', {
+                tables: Array.from({ length: 20 }, (_, index) => ({ label: `T${index}`, database: 'PUBLIC' })),
+            });
+            (0, globals_1.expect)(peak).toBeLessThanOrEqual(4);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(21);
+        });
+        (0, globals_1.it)('refresh replaces catalog and invalidates cached column lists', async () => {
+            await connection.connect();
+            await new Promise(resolve => setTimeout(resolve, 0));
+            await connection.catalogRefresh;
+            await connection.searchItems(types_1.ContextValue.COLUMN, '', { tables: [{ label: 'EMPLOYEE', database: 'PUBLIC' }] });
+            driver.searchItems = globals_1.jest.fn(async () => [{ label: 'NEW_OBJECT' }]);
+            await connection.refreshCompletionCatalog();
+            (0, globals_1.expect)((await connection.searchItems(types_1.ContextValue.TABLE))[0].label).toBe('NEW_OBJECT');
+            (0, globals_1.expect)((await connection.searchItems(types_1.ContextValue.COLUMN, '', {
+                tables: [{ label: 'EMPLOYEE', database: 'PUBLIC' }],
+            }))[0].label).toBe('NEW_OBJECT');
+        });
+        (0, globals_1.it)('restores complete catalog snapshots without an API call', async () => {
+            await connection.connect();
+            await connection.catalogRefresh;
+            await connection_1.default.persistenceQueue;
+            connection_1.default.completionSnapshots.clear();
+            connection_1.default.completionSnapshotsLoaded = false;
+            driver.searchItems.mockClear();
+            const restored = new connection_1.default({ id: `cache-test-${connectionId}`, driver: 'cache-test' }, globals_1.jest.fn());
+            (0, globals_1.expect)((await restored.searchItems(types_1.ContextValue.TABLE, 'custhist'))[0].label).toBe('customer_order_history');
+            (0, globals_1.expect)(driver.searchItems).not.toHaveBeenCalled();
+        });
+        (0, globals_1.it)('uses the same complete schema catalog for database and schema requests', async () => {
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.DATABASE, '', {}, 50)).toHaveLength(50);
+            const matches = await connection.searchItems(types_1.ContextValue.SCHEMA, 'custhist');
+            (0, globals_1.expect)(matches).toHaveLength(1);
+            (0, globals_1.expect)(matches[0].label).toBe('customer_order_history');
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(1);
+        });
+        (0, globals_1.it)('searches 23,000 tables locally without additional queries', async () => {
+            await connection.searchItems(types_1.ContextValue.TABLE, '', {}, 501);
+            const start = Date.now();
+            for (let index = 0; index < 20; index++) {
+                (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.TABLE, 'custhist', {}, 501)).toHaveLength(1);
+            }
+            (0, globals_1.expect)(Date.now() - start).toBeLessThan(5000);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenCalledTimes(1);
+        });
+        (0, globals_1.it)('protects schema/table catalogs from request-cache churn and keeps them on disconnect', async () => {
+            await connection.connect();
+            await connection.catalogRefresh;
+            for (let index = 0; index < 260; index++) {
+                await connection.searchItems(types_1.ContextValue.COLUMN, '', {
+                    tables: [{ label: `UNKNOWN_${index}`, database: 'PUBLIC' }],
+                });
+            }
+            driver.searchItems.mockClear();
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.TABLE, 'custhist')).toHaveLength(1);
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.SCHEMA, 'custhist')).toHaveLength(1);
+            await connection.close();
+            const restored = new connection_1.default({ id: `cache-test-${connectionId}`, driver: 'cache-test' }, globals_1.jest.fn());
+            (0, globals_1.expect)(await restored.searchItems(types_1.ContextValue.TABLE, 'custhist')).toHaveLength(1);
+            (0, globals_1.expect)(driver.searchItems).not.toHaveBeenCalled();
+        });
+        (0, globals_1.it)('preserves exact catalog identifiers for columns and isolates same-name tables by schema', async () => {
+            driver.searchItems = globals_1.jest.fn(async (type, _search, context) => type === types_1.ContextValue.TABLE ? [
+                { label: 'mixed', catalogLabel: 'MiXed', schema: 'App', type: types_1.ContextValue.TABLE },
+                { label: 'mixed', catalogLabel: 'MiXed', schema: 'Other', type: types_1.ContextValue.TABLE },
+            ] : [{ label: 'id', schema: context.tables[0].schema }]);
+            (0, globals_1.expect)(await connection.searchItems(types_1.ContextValue.COLUMN, '', {
+                tables: [{ label: 'mixed', database: 'app' }],
+            })).toEqual([{ label: 'id', schema: 'App' }]);
+            (0, globals_1.expect)(driver.searchItems).toHaveBeenLastCalledWith(types_1.ContextValue.COLUMN, '', {
+                completionCatalog: true,
+                tables: [{ label: 'MiXed', schema: 'App', database: 'App', catalogResolved: true }],
+            });
+        });
+        (0, globals_1.it)('prevents a disconnected background refresh from replacing the next connection catalog', async () => {
+            await connection.connect();
+            await connection.catalogRefresh;
+            let release;
+            const pending = new Promise(resolve => { release = resolve; });
+            driver.searchItems = globals_1.jest.fn(async () => { await pending; return [{ label: 'OLD_OBJECT' }]; });
+            const refresh = connection.refreshCompletionCatalog();
+            await connection.close();
+            driver.searchItems = globals_1.jest.fn(async () => [{ label: 'NEW_OBJECT' }]);
+            await connection.connect();
+            await connection.catalogRefresh;
+            release();
+            await refresh;
+            (0, globals_1.expect)((await connection.searchItems(types_1.ContextValue.TABLE))[0].label).toBe('NEW_OBJECT');
+        });
+        (0, globals_1.it)('keeps stale data usable during background refresh and reports explicit refresh failures', async () => {
+            await connection.connect();
+            await connection.catalogRefresh;
+            connection.catalogRefreshedAt = 0;
+            let release;
+            const pending = new Promise(resolve => { release = resolve; });
+            driver.searchItems = globals_1.jest.fn(async () => { await pending; throw new Error('permission denied'); });
+            const result = await connection.searchItems(types_1.ContextValue.TABLE, 'custhist');
+            (0, globals_1.expect)(result[0].label).toBe('customer_order_history');
+            release();
+            await (0, globals_1.expect)(connection.catalogRefresh).rejects.toThrow('permission denied');
+            await (0, globals_1.expect)(connection.refreshCompletionCatalog()).rejects.toThrow('permission denied');
+            (0, globals_1.expect)((await connection.searchItems(types_1.ContextValue.TABLE, 'custhist'))[0].label).toBe('customer_order_history');
+        });
+    });
 });
 //# sourceMappingURL=connection.test.js.map

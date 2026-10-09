@@ -7,6 +7,13 @@ order: 10
 
 ## v0.28
 
+### v0.28.43 - (Oct 9, 2026)
+
+- Extend complete autocomplete catalogs to Db2 0.0.25, PostgreSQL 0.5.13, and Oracle 0.1.23. Full schema/table lists are cached per connection and persisted through SQLTools' existing cache; display limits are applied after local, case-insensitive ordered-subsequence matching (`custhist` matches `customer_order_history`).
+- Cache full columns on demand per table/schema, with at most four simultaneous column requests. PostgreSQL and Oracle completion metadata bypass their normal query limits; owner/schema-scoped column lookups avoid mixing identically named tables.
+- Serve cached metadata during background refresh (after 15 minutes on the next completion request), retry failures after one minute, and retain the previous catalog on errors. Use **SQLTools: Refresh Autocomplete Catalog** for the active connection after metadata changes; refreshing also invalidates cached columns.
+- Compatible drivers opt in using `supportsCompletionCatalog` and `completionCatalog: true`; legacy drivers keep their existing search behavior. Install the updated SQLTools extension together with the updated drivers to enable these optimizations.
+
 ### v0.28.42 - (Oct 9, 2026)
 
 - Accept driver-provided completion lists and retain their incomplete/loading flag, while continuing to support completion arrays and enforce the display limit. Used by BigQuery's background autocomplete catalog.

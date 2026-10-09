@@ -4,6 +4,12 @@ This package is part of [vscode-sqltools](https://vscode-sqltools.mteixeira.dev/
 
 ## Changelog
 
+### 0.5.13
+
+- With SQLTools 0.28.43, use complete, persistent per-connection schema/table catalogs and local abbreviated matching before the suggestion display limit. Normal non-completion query limits remain unchanged.
+- Cache full columns lazily per table/schema with at most four concurrent lookups, preserving catalog identifiers and avoiding cross-schema column mixing.
+- Cached catalogs refresh in the background after 15 minutes on the next completion request. Use **SQLTools: Refresh Autocomplete Catalog** after metadata changes to refresh the active connection and invalidate cached columns. Failed refreshes retain the previous catalog, log the error, and retry after one minute.
+
 ### 0.5.8
 
 - Browse procedures, functions, indexes and triggers, and surface DDL scripts for these. [#1541](https://github.com/mtxr/vscode-sqltools/pull/1541) - thanks [@j2cry](https://github.com/j2cry)

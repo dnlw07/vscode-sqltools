@@ -10,6 +10,7 @@ import { createLogger } from '@sqltools/log/src';
 import connectionStateCache, { ACTIVE_CONNECTIONS_KEY, LAST_USED_ID_KEY } from './cache/connections-state.model';
 import { getRetainedResults, releaseResults } from './cache/query-results.model';
 import { DriverNotInstalledNotification } from '@sqltools/language-server/src/notifications';
+import { RefreshCompletionCatalogRequest } from './contracts';
 
 const log = createLogger('conn-manager');
 
@@ -280,6 +281,13 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
     this.server.onRequest(GetDefinitionQueryForItemRequest, this.GetDefinitionQueryForItemHandler);
     this.server.onRequest(GetInsertQueryRequest, this.GetInsertQueryHandler);
     this.server.onRequest(GenerateTableDDLRequest, this.generateTableDDLHandler);
+    this.server.onRequest(RefreshCompletionCatalogRequest, async () => {
+      const id = await connectionStateCache.get(LAST_USED_ID_KEY);
+      const connections = await connectionStateCache.get(ACTIVE_CONNECTIONS_KEY, {}) as { [id: string]: Connection };
+      const connection = connections[id];
+      if (!connection) throw new Error('Select an open connection before refreshing autocomplete.');
+      await connection.refreshCompletionCatalog();
+    });
     this.server.addOnDidChangeConfigurationHooks(() => this._autoConnectIfActive());
   }
 

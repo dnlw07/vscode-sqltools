@@ -15,6 +15,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const crypto_1 = require("crypto");
 const path_2 = require("@sqltools/util/path");
+const completion_matching_1 = require("./completion-matching");
 const log = (0, src_1.createLogger)('conn');
 class Connection {
     credentials;
@@ -28,6 +29,14 @@ class Connection {
     conn;
     completionCache = new Map();
     fallbackCompletionCache;
+    catalogCache = new Map();
+    catalogLoading = new Map();
+    catalogRefresh;
+    catalogRefreshedAt = 0;
+    catalogRetryAt = 0;
+    catalogGeneration = 0;
+    columnRequests = 0;
+    columnWaiters = [];
     constructor(credentials, getWorkspaceFolders) {
         this.credentials = credentials;
         const DriverClass = context_1.default.drivers.get(credentials.driver);
@@ -54,7 +63,7 @@ class Connection {
         else
             await this.query('SELECT 1;', { throwIfError: true });
         this.connected = true;
-        void this.warmCompletionCache();
+        this.refreshCatalogInBackground();
     }
     setPassword(password) {
         this.conn.credentials.password = password;
@@ -69,10 +78,17 @@ class Connection {
         if (this.connected) {
             const snapshot = new Map(this.fallbackCompletionCache || []);
             this.completionCache.forEach((value, key) => snapshot.set(key, value));
+            this.catalogCache.forEach((value, key) => snapshot.set(key, value));
             this.saveCompletionSnapshot(snapshot);
         }
         this.fallbackCompletionCache = undefined;
         this.completionCache = new Map();
+        this.catalogCache = new Map();
+        this.catalogLoading = new Map();
+        this.catalogGeneration++;
+        this.catalogRefresh = undefined;
+        this.catalogRefreshedAt = 0;
+        this.catalogRetryAt = 0;
         if (this.needsPassword())
             this.conn.credentials.password = undefined;
         this.connected = false;
@@ -266,7 +282,86 @@ class Connection {
         });
     }
     searchItems(itemType, search = '', extraParams = {}, maxResults) {
+        if (this.conn.supportsCompletionCatalog &&
+            [types_1.ContextValue.TABLE, types_1.ContextValue.VIEW, types_1.ContextValue.SCHEMA, types_1.ContextValue.DATABASE, types_1.ContextValue.COLUMN].includes(itemType)) {
+            return this.searchCatalog(itemType, search, extraParams, maxResults);
+        }
         return this.searchItemsWithCache(itemType, search, extraParams, this.completionCache, true, maxResults);
+    }
+    async searchCatalog(itemType, search, params, maxResults) {
+        if (this.connected && Date.now() - this.catalogRefreshedAt >= 15 * 60 * 1000 &&
+            Date.now() >= this.catalogRetryAt)
+            this.refreshCatalogInBackground();
+        let items;
+        if (itemType === types_1.ContextValue.COLUMN) {
+            if (!params.tables?.length)
+                throw new Error('Column completion requires a table context.');
+            const catalog = await this.getCatalog(types_1.ContextValue.TABLE);
+            const tables = params.tables.reduce((all, table) => {
+                const schema = table.schema || table.database;
+                const candidates = catalog.filter(item => item.label.toLowerCase() === table.label.toLowerCase() &&
+                    (!schema || item.schema?.toLowerCase() === schema.toLowerCase()));
+                const exact = candidates.filter(item => (item.catalogLabel || item.label) === table.label &&
+                    (!schema || item.schema === schema));
+                const matches = exact.length ? exact : candidates;
+                return all.concat(matches.length ? matches.map(item => ({
+                    ...table,
+                    label: item.catalogLabel || item.label,
+                    schema: item.schema, database: item.schema, catalogResolved: true,
+                })) : [table]);
+            }, []);
+            const groups = await Promise.all(tables.map(table => {
+                const context = { tables: [table], completionCatalog: true };
+                return this.cacheCompletion(this.completionKey(types_1.ContextValue.COLUMN, '', context), () => this.loadColumns(context), this.completionCache, false);
+            }));
+            items = groups.reduce((all, group) => all.concat(group), []);
+        }
+        else {
+            const type = itemType === types_1.ContextValue.SCHEMA || itemType === types_1.ContextValue.DATABASE
+                ? types_1.ContextValue.SCHEMA : types_1.ContextValue.TABLE;
+            items = await this.getCatalog(type);
+        }
+        const results = [];
+        for (const item of items) {
+            if (itemType === types_1.ContextValue.VIEW && item.type !== types_1.ContextValue.VIEW)
+                continue;
+            if (itemType !== types_1.ContextValue.COLUMN && params.database &&
+                (item.schema || item.database || '').toLowerCase() !== params.database.toLowerCase())
+                continue;
+            if (!(0, completion_matching_1.matchesCompletionName)(item.label, search))
+                continue;
+            results.push({ ...item });
+            if (maxResults && results.length >= maxResults)
+                break;
+        }
+        return results;
+    }
+    getCatalog(type) {
+        const context = { completionCatalog: true };
+        const key = this.completionKey(type, '', context);
+        const cached = this.catalogCache.get(key) || this.fallbackCompletionCache?.get(key) || this.catalogLoading.get(key);
+        return cached || this.cacheCompletion(key, () => this.conn.searchItems(type, '', context), this.catalogCache, false);
+    }
+    async loadColumns(context) {
+        if (this.columnRequests >= 4)
+            await new Promise(resolve => this.columnWaiters.push(resolve));
+        else
+            this.columnRequests++;
+        try {
+            return await this.conn.searchItems(types_1.ContextValue.COLUMN, '', context);
+        }
+        finally {
+            const next = this.columnWaiters.shift();
+            if (next)
+                next();
+            else
+                this.columnRequests--;
+        }
+    }
+    async refreshCompletionCatalog() {
+        if (!this.connected)
+            throw new Error('Connect to the database before refreshing autocomplete.');
+        await this.warmCompletionCache(true);
     }
     getStaticCompletions = () => {
         const getStaticCompletions = this.conn.getStaticCompletions;
@@ -369,27 +464,56 @@ class Connection {
             throw new Error('Unable to determine connection ID.');
         return (0, crypto_1.createHash)('sha256').update(id).digest('hex');
     }
-    async warmCompletionCache() {
+    warmCompletionCache(force = false) {
+        if (this.catalogRefresh)
+            return this.catalogRefresh;
+        const generation = this.catalogGeneration;
+        const pending = this.loadCompletionCatalog(generation, force).finally(() => {
+            if (this.catalogRefresh === pending)
+                this.catalogRefresh = undefined;
+        });
+        this.catalogRefresh = pending;
+        return pending;
+    }
+    refreshCatalogInBackground() {
+        void this.warmCompletionCache().catch(error => {
+            log.error('Failed to warm schema and table completion cache: %O', error);
+        });
+    }
+    async loadCompletionCatalog(generation, force) {
         const warmingCache = new Map();
+        this.catalogLoading = warmingCache;
         try {
+            const params = this.conn.supportsCompletionCatalog ? { completionCatalog: true } : {};
             await Promise.all([
-                this.searchItemsWithCache(types_1.ContextValue.SCHEMA, '', {}, warmingCache, false),
-                this.searchItemsWithCache(types_1.ContextValue.TABLE, '', {}, warmingCache, false),
+                this.searchItemsWithCache(types_1.ContextValue.SCHEMA, '', params, warmingCache, false),
+                this.searchItemsWithCache(types_1.ContextValue.TABLE, '', params, warmingCache, false),
             ]);
-            if (!this.connected)
+            if (!this.connected || generation !== this.catalogGeneration)
                 return;
+            if (this.conn.supportsCompletionCatalog)
+                this.catalogCache = new Map(warmingCache);
             const replacementCache = new Map(warmingCache);
-            this.completionCache.forEach((value, key) => {
-                if (!replacementCache.has(key))
-                    replacementCache.set(key, value);
-            });
+            if (!force && !this.conn.supportsCompletionCatalog)
+                this.completionCache.forEach((value, key) => {
+                    if (!replacementCache.has(key))
+                        replacementCache.set(key, value);
+                });
             this.completionCache = replacementCache;
             this.fallbackCompletionCache = undefined;
+            this.catalogRefreshedAt = Date.now();
+            this.catalogRetryAt = 0;
             this.saveCompletionSnapshot(replacementCache);
             await this.persistCompletionSnapshot();
         }
         catch (error) {
-            log.error('Failed to warm schema and table completion cache: %O', error);
+            if (generation === this.catalogGeneration)
+                this.catalogRetryAt = Date.now() + 60 * 1000;
+            throw error;
+        }
+        finally {
+            if (this.catalogLoading === warmingCache)
+                this.catalogLoading = new Map();
         }
     }
     getCompletionsForRawQuery(text, currentOffset) {

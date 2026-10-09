@@ -15,6 +15,9 @@ export const ForceListRefresh = new RequestType<
   Error,
   void
 >('connection/ForceListRefresh');
+export const RefreshCompletionCatalogRequest = new RequestType<
+  void, void, Error, void
+>('connection/RefreshCompletionCatalog');
 export const GetConnectionPasswordRequest = new RequestType<
   { conn: IConnection },
   string,

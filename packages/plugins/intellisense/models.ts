@@ -2,12 +2,13 @@ import {
   CompletionItem,
   CompletionItemKind,
 } from 'vscode-languageserver';
-import { NSDatabase, DatabaseDriver } from '@sqltools/types';
+import { NSDatabase, DatabaseDriver, ContextValue } from '@sqltools/types';
 
-export function DatabaseCompletionItem(database: NSDatabase.IDatabase, priority: number = 1 ): CompletionItem {
-  let yml = `Database: ${database.label}\n`;
+export function DatabaseCompletionItem(database: Pick<NSDatabase.IDatabase, 'label'> & { type?: ContextValue }, priority: number = 1 ): CompletionItem {
+  const objectType = database.type === ContextValue.SCHEMA ? 'Schema' : 'Database';
+  let yml = `${objectType}: ${database.label}\n`;
   return {
-    detail: "Database",
+    detail: objectType,
     documentation: {
       value: `\`\`\`yaml\n${yml}\n\`\`\``,
       kind: 'markdown',

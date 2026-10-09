@@ -2,7 +2,7 @@
     "name": "sqltools",
     "displayName": "SQLTools",
     "description": "Connecting users to many of the most commonly used databases. Welcome to database management done right.",
-    "version": "0.28.42",
+    "version": "0.28.43",
     "publisher": "mtxr",
     "license": "MIT",
     "preview": false,
@@ -334,6 +334,11 @@
                     "light": "icons/refresh-light.svg",
                     "dark": "icons/refresh-dark.svg"
                 }
+            },
+            {
+                "title": "Refresh Autocomplete Catalog",
+                "command": "sqltools.refreshAutocomplete",
+                "category": "SQLTools"
             },
             {
                 "title": "New SQL File",

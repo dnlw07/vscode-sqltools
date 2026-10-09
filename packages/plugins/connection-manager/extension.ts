@@ -23,6 +23,7 @@ import { ConnectRequest, DisconnectRequest, ForceListRefresh, GetChildrenForTree
 import DependencyManager from './dependency-manager/extension';
 import { getExtension, resolveConnection } from './extension-util';
 import statusBar from './status-bar';
+import { RefreshCompletionCatalogRequest } from './contracts';
 import QueryExecutionTracker from './query-execution-tracker';
 import getResultsRequestId from './results-request-id';
 import { generateDDL, selectDDLTarget } from './generate-ddl';
@@ -61,6 +62,17 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   private queryBlocksCache = new WeakMap<TextDocument, { version: number; blocks: QueryBlock[] }>();
 
   // extension commands
+  private ext_refreshAutocomplete = async () => {
+    try {
+      await window.withProgress({
+        location: ProgressLocation.Notification, title: 'Refreshing autocomplete catalog',
+      }, () => this.client.sendRequest(RefreshCompletionCatalogRequest, undefined));
+      window.showInformationMessage('Autocomplete catalog refreshed.');
+    } catch (error) {
+      window.showErrorMessage(`Autocomplete refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private ext_refreshTree = (connIdOrTreeItem: SidebarConnection | SidebarConnection[]) => {
     if (typeof connIdOrTreeItem === 'string') {
       throw new Error(`Deprecated! ${EXT_NAMESPACE}.refreshTree command with strings is now deprecated.`);
@@ -1025,6 +1037,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       .registerCommand(`executeQueryFromFile`, this.ext_executeQueryFromFile)
       .registerCommand(`applyResultEdits`, this.ext_applyResultEdits)
       .registerCommand(`refreshTree`, this.ext_refreshTree)
+      .registerCommand(`refreshAutocomplete`, this.ext_refreshAutocomplete)
       .registerCommand(`saveResults`, this.ext_saveResults)
       .registerCommand(`openResults`, this.ext_openResults)
       .registerCommand(`selectConnection`, this.ext_selectConnection)
