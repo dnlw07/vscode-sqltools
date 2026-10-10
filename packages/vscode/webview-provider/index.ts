@@ -59,6 +59,10 @@ export default abstract class WebviewProvider<State = any> implements Disposable
   public constructor() {}
   public preserveFocus = true;
   public whereToShow = ViewColumn.One;
+  public get viewColumn() {
+    return this.panel?.viewColumn;
+  }
+  public onViewColumnChanged?: () => void;
   public show() {
     if (!this.panel) {
       this.panel = window.createWebviewPanel(
@@ -80,6 +84,7 @@ export default abstract class WebviewProvider<State = any> implements Disposable
       this.panel.webview.onDidReceiveMessage(this.onDidReceiveMessage, null, this.disposables);
       this.panel.onDidChangeViewState(
         ({ webviewPanel }) => {
+          this.onViewColumnChanged?.();
           this.setPreviewActiveContext(webviewPanel.active);
           this.onViewActive && this.onViewActive(webviewPanel.active);
         },
@@ -88,6 +93,7 @@ export default abstract class WebviewProvider<State = any> implements Disposable
       );
       this.panel.onDidDispose(this.dispose, null, this.disposables);
       this.panel.webview.html = this.html || this.baseHtml;
+      this.onViewColumnChanged?.();
     } else {
       this.panel.reveal(undefined, this.preserveFocus);
     }

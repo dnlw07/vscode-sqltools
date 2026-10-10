@@ -6,13 +6,14 @@ import Config from '@sqltools/util/config-manager';
 import { getNameFromId } from '@sqltools/util/connection';
 import { DISPLAY_NAME } from '@sqltools/util/constants';
 import { UIAction } from './ui/screens/Results/actions';
+import { ResultGroup } from './result-group';
 
 class ResultsWebview extends WebviewProvider<ResultsScreenState> {
   protected id: string = 'Results';
   protected title: string = `${DISPLAY_NAME} Results`;
   protected isOpen = false;
 
-  constructor(public requestId: string) {
+  constructor(public requestId: string, private group: ResultGroup) {
     super();
 
     this.onDidDispose(() => {
@@ -35,35 +36,35 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
     return Config.results.customization;
   }
 
-  show() {
-    if (!this.isOpen) {
-      this.whereToShow = undefined;
-      switch (Config.results.location) {
-        case 'none': 
-          break;
-        case 'active': // fallback older version
-        case 'current':
-          this.whereToShow = vscode.ViewColumn.Active;
-          break;
-        case 'end':
-          this.whereToShow = vscode.ViewColumn.Three;
-          break;
-        case 'beside': // fallback
-        default:
-          if (!vscode.window.activeTextEditor) {
-            this.whereToShow = vscode.ViewColumn.One;
-          } else if (Config.results && typeof Config.results.location === 'number' && Config.results.location >= -1 && Config.results.location <= 9 && Config.results.location !== 0) {
-            this.whereToShow = Config.results.location;
-          } else if (vscode.window.activeTextEditor.viewColumn === vscode.ViewColumn.One) {
-            this.whereToShow = vscode.ViewColumn.Two;
-          } else {
+  async show() {
+    const location = String(Config.results.location || 'next');
+    const automatic = !location || location === 'next' || location === 'beside';
+    if (this.viewColumn === undefined && automatic) {
+      await this.group.open(column => {
+        this.whereToShow = column;
+        super.show();
+        return this;
+      });
+    } else {
+      if (this.viewColumn === undefined) {
+        this.whereToShow = undefined;
+        switch (location) {
+          case 'none':
+            break;
+          case 'active': // fallback older version
+          case 'current':
+            this.whereToShow = vscode.ViewColumn.Active;
+            break;
+          case 'end':
             this.whereToShow = vscode.ViewColumn.Three;
-          }
-          break;
+            break;
+          default:
+            this.whereToShow = Number(location) as vscode.ViewColumn;
+            break;
+        }
       }
+      super.show();
     }
-
-    super.show();
 
     return new Promise<void>((resolve, reject) => {
       let count = 0;
@@ -72,6 +73,7 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
           clearInterval(interval);
           return resolve();
         }
+        count++;
         if (count >= 5) {
           clearInterval(interval);
           return reject(new Error('Can\'t open results screen'));
@@ -117,14 +119,19 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
 
 export default class ResultsWebviewManager {
   private viewsMap: { [id: string]: ResultsWebview } = {};
+  private group = new ResultGroup();
 
   dispose = () => {
     return Promise.all(Object.keys(this.viewsMap).map(id => this.viewsMap[id].dispose()));
   }
 
   private createForId = (requestId: InternalID) => {
-    this.viewsMap[requestId] = new ResultsWebview(requestId);
-    this.viewsMap[requestId].onDidDispose(() => {
+    const view = new ResultsWebview(requestId, this.group);
+    this.viewsMap[requestId] = view;
+    this.group.track(view);
+    view.onViewColumnChanged = () => this.group.changed(view);
+    view.onDidDispose(() => {
+      this.group.remove(view);
       delete this.viewsMap[requestId];
     });
     return this.viewsMap[requestId];

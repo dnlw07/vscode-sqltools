@@ -7,6 +7,12 @@ order: 10
 
 ## v0.28
 
+### v0.28.44 - (Oct 10, 2026)
+
+- With the default results location (`next`), automatically reserve a separate SQLTools results editor group and reuse it for new and parallel outputs, including when the results window has focus. Ordinary file opens use an unlocked group; manual group locking is not required.
+- SQLTools enables the Results-only rule (`mainThreadWebview-Results: true`) in VS Code's User `workbench.editor.autoLockGroups` setting, preserving other entries. This rule remains available across sessions. It applies when a Results panel is the first editor in a separate group, not to source-file groups. Workspace overrides that prevent enabling the rule produce an explicit error.
+- Track live panel columns when output tabs move or groups are renumbered; reset the destination after the last output closes. The first output adds a right-hand group without moving existing file tabs; an existing vertical file layout is retained on the left. Existing output tabs are not forcibly relocated, and explicit result-location settings retain their placement semantics.
+
 ### v0.28.43 - (Oct 9, 2026)
 
 - Extend complete autocomplete catalogs to Db2 0.0.25, PostgreSQL 0.5.13, and Oracle 0.1.23. Full schema/table lists are cached per connection and persisted through SQLTools' existing cache; display limits are applied after local, case-insensitive ordered-subsequence matching (`custhist` matches `customer_order_history`).

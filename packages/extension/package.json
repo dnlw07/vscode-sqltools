@@ -2,7 +2,7 @@
     "name": "sqltools",
     "displayName": "SQLTools",
     "description": "Connecting users to many of the most commonly used databases. Welcome to database management done right.",
-    "version": "0.28.43",
+    "version": "0.28.44",
     "publisher": "mtxr",
     "license": "MIT",
     "preview": false,
@@ -824,7 +824,7 @@
                     ],
                     "enumDescriptions": [
                         "Do not open a results tab.",
-                        "New group if nothing open. Second group if currently active text editor is in first group. Otherwise third group.",
+                        "Open results in a separate automatically locked group on the right, and reuse that group for subsequent and parallel outputs.",
                         "Current active group.",
                         "The third group.",
                         "First group.",
@@ -837,7 +837,7 @@
                         "Eighth group.",
                         "Ninth group."
                     ],
-                    "markdownDescription": "Define which edit group the results tab should appear in. Empty groups are never created. For example, if setting is 4 but only one group currently exists then the first set of results will create a new group 2, the second a group 3 and the third and subsequent sets of results will appear in group 4."
+                    "markdownDescription": "Define which editor group the results tab should appear in. With `next` (default), SQLTools enables `workbench.editor.autoLockGroups.mainThreadWebview-Results` in User settings and reuses a dedicated results group. Normal files open in an unlocked group even when results have focus; parallel outputs stay together. Use a side-by-side layout with files on the left and results on the right. Explicit `current`, `end`, and numbered locations override this automatic placement. Numbered groups are created incrementally if they do not exist."
                 },
                 "sqltools.results.customization": {
                     "type": "object",
