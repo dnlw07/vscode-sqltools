@@ -4,8 +4,13 @@ This package is part of [vscode-sqltools](https://vscode-sqltools.mteixeira.dev/
 
 ## Changelog
 
+### 0.5.14
+
+- Allow grid editing when a result projection omits one or more primary-key columns by matching all returned source-column values.
+
 ### 0.5.13
 
+- Grid editing remains available when a result projection omits one or more primary-key columns. PostgreSQL then matches the original values of all returned source columns; a complete primary key continues to be preferred.
 - With SQLTools 0.28.43, use complete, persistent per-connection schema/table catalogs and local abbreviated matching before the suggestion display limit. Normal non-completion query limits remain unchanged.
 - Cache full columns lazily per table/schema with at most four concurrent lookups, preserving catalog identifiers and avoiding cross-schema column mixing.
 - Cached catalogs refresh in the background after 15 minutes on the next completion request. Use **SQLTools: Refresh Autocomplete Catalog** after metadata changes to refresh the active connection and invalidate cached columns. Failed refreshes retain the previous catalog, log the error, and retry after one minute.

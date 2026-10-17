@@ -4,7 +4,7 @@
 		{
 			"label": "Build SQLTools release VSIX",
 			"type": "shell",
-			"command": "$env:NODE_ENV='production'; Set-Location build-tools; node --max_old_space_size=8192 .\\node_modules\\webpack\\bin\\webpack.js --env pkg=extension; if ($LASTEXITCODE -eq 0) { Set-Location ..\\packages\\extension; & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-0.28.44.vsix }",
+			"command": "$env:NODE_ENV='production'; Set-Location build-tools; node --max_old_space_size=8192 .\\node_modules\\webpack\\bin\\webpack.js --env pkg=extension; if ($LASTEXITCODE -eq 0) { Set-Location ..\\packages\\extension; & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-0.28.49.vsix }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
@@ -12,7 +12,7 @@
 		{
 			"label": "Build PostgreSQL release VSIX",
 			"type": "shell",
-			"command": "Set-Location packages\\driver.pg; npm run build:ext; if ($LASTEXITCODE -eq 0) { npm run build:ls; if ($LASTEXITCODE -eq 0) { 'y' | & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-driver-pg-0.5.13.vsix } }",
+			"command": "Set-Location packages\\driver.pg; npm run build:ext; if ($LASTEXITCODE -eq 0) { npm run build:ls; if ($LASTEXITCODE -eq 0) { 'y' | & ..\\..\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o ..\\..\\sqltools-driver-pg-0.5.14.vsix } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
@@ -28,7 +28,7 @@
 		{
 			"label": "Build Oracle release VSIX",
 			"type": "shell",
-			"command": "Set-Location ..\\sqltools-Oracle-driver; npm run esbuild:ext; if ($LASTEXITCODE -eq 0) { npm run esbuild:ls; if ($LASTEXITCODE -eq 0) { & ..\\vscode-sqltools\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o sqltools-oracle-driver-0.1.23.vsix } }",
+			"command": "Set-Location ..\\sqltools-Oracle-driver; npm run esbuild:ext; if ($LASTEXITCODE -eq 0) { npm run esbuild:ls; if ($LASTEXITCODE -eq 0) { & ..\\vscode-sqltools\\node_modules\\.bin\\vsce.cmd package --yarn --allow-star-activation -o sqltools-oracle-driver-0.1.24.vsix } }",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"
@@ -36,7 +36,7 @@
 		{
 			"label": "Build BigQuery release VSIX",
 			"type": "shell",
-			"command": "Set-Location ..\\sqltools-bigquery-driver; & ..\\vscode-sqltools\\node_modules\\.bin\\vsce.cmd package --allow-star-activation -o sqltools-bigquery-driver-0.0.12.vsix",
+			"command": "Set-Location ..\\sqltools-bigquery-driver; & ..\\vscode-sqltools\\node_modules\\.bin\\vsce.cmd package --allow-star-activation -o sqltools-bigquery-driver-0.0.13.vsix",
 			"isBackground": false,
 			"problemMatcher": [],
 			"group": "build"

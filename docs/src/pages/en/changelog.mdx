@@ -7,6 +7,28 @@ order: 10
 
 ## v0.28
 
+### v0.28.49 - (Oct 17, 2026)
+
+- Update the BigQuery driver release compatibility after packaging its language-server runtime dependency.
+
+### v0.28.48 - (Oct 17, 2026)
+
+- Add the BigQuery estimate-query settings command to open SQLTools connection settings from the Command Palette.
+
+### v0.28.47 - (Oct 17, 2026)
+
+- Include the BigQuery source project in result metadata so grid copy and edit actions work for unqualified `dataset.table` queries.
+
+### v0.28.46 - (Oct 17, 2026)
+
+- Preserve the source BigQuery project in result metadata and generated INSERT/UPDATE statements.
+
+### v0.28.45 - (Oct 17, 2026)
+
+- Show BigQuery scan-size estimates as VS Code information notifications when the BigQuery driver's opt-in estimate setting is enabled.
+- Keep PostgreSQL result grids editable when a projection omits part of a primary key by matching all returned source-column values.
+- Generate unquoted identifiers for copied INSERT and UPDATE statements while preserving quoted string values.
+
 ### v0.28.44 - (Oct 10, 2026)
 
 - With the default results location (`next`), automatically reserve a separate SQLTools results editor group and reuse it for new and parallel outputs, including when the results window has focus. Ordinary file opens use an unlocked group; manual group locking is not required.

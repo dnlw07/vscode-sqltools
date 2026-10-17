@@ -332,9 +332,14 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     });
     const primaryKeys = metadata.rows.filter(column => column.isPk).map(column => column.column);
     const includedColumns = new Set(resolved.map(column => column.sourceColumn));
-    // no primary key: every mapped column is used to locate the row on save instead
-    if (primaryKeys.length && !primaryKeys.every(column => includedColumns.has(column))) {
-      return { columnMeta: resolved, editable: false, nonEditableReason: 'Result must include every primary key column.' };
+    const hasCompletePrimaryKey = primaryKeys.length > 0 && primaryKeys.every(column => includedColumns.has(column));
+    if (!hasCompletePrimaryKey) {
+      // A projection can omit a PK column, so use every returned source column
+      // as the row identity instead of claiming that the incomplete PK is safe.
+      return {
+        columnMeta: resolved.map(column => ({ ...column, isPk: false })),
+        editable: true,
+      };
     }
     return { columnMeta: resolved, editable: true };
   }

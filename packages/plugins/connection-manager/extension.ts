@@ -380,6 +380,14 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
           command: 'query',
           args: [query, { ...opt, requestId: view.requestId }],
         });
+        const estimateNotification = Array.isArray(payload)
+          ? payload.flatMap(result => result.messages || [])
+            .map(message => typeof message === 'string' ? message : message?.message)
+            .find(message => typeof message === 'string' && /^Estimated bytes scanned:/.test(message))
+          : undefined;
+        if (estimateNotification) {
+          window.showInformationMessage(estimateNotification);
+        }
         this.updateViewResults(view, payload);
         return payload;
       } finally {

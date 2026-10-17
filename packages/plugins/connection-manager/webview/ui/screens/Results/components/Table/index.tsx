@@ -45,8 +45,8 @@ function rowsToTSV(rows: any[], columns: string[]): string {
   return rows.map(row => columns.map(column => plain(row[column])).join('\t')).join('\n');
 }
 
-function quoteIdentifier(name: string): string {
-  return `"${String(name).replace(/"/g, '""')}"`;
+function formatGeneratedIdentifier(name: string): string {
+  return String(name);
 }
 
 function formatSqlValue(value: any): string {
@@ -59,23 +59,23 @@ function formatSqlValue(value: any): string {
 function rowsToInsertStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[]): string {
   const mapped = columnMeta.filter(hasSourceColumn);
   if (!mapped.length || !rows.length) return '';
-  const relation = [mapped[0].schema, mapped[0].table].filter(isIdentifier).map(quoteIdentifier).join('.');
-  const columnNames = mapped.map(column => quoteIdentifier(column.sourceColumn)).join(', ');
+  const relation = [mapped[0].database, mapped[0].schema, mapped[0].table].filter(isIdentifier).map(formatGeneratedIdentifier).join('.');
+  const columnNames = mapped.map(column => formatGeneratedIdentifier(column.sourceColumn)).join(', ');
   return rows.map(row => `INSERT INTO ${relation} (${columnNames}) VALUES (${mapped.map(column => formatSqlValue(row[column.name])).join(', ')});`).join('\n');
 }
 
 function rowsToUpdateStatements(rows: any[], columnMeta: NSDatabase.IResultColumnMeta[], selectedColumnNames: string[]): string {
   const mapped = columnMeta.filter(hasSourceColumn);
   if (!mapped.length || !rows.length) return '';
-  const relation = [mapped[0].schema, mapped[0].table].filter(isIdentifier).map(quoteIdentifier).join('.');
+  const relation = [mapped[0].database, mapped[0].schema, mapped[0].table].filter(isIdentifier).map(formatGeneratedIdentifier).join('.');
   const pkColumns = mapped.filter(column => column.isPk);
   // no primary key: every mapped column is used to locate the row instead, matching the Save behavior
   const whereColumns = pkColumns.length ? pkColumns : mapped;
   const setColumns = mapped.filter(column => selectedColumnNames.includes(column.name));
   if (!setColumns.length) return '';
   return rows.map(row => {
-    const setClause = setColumns.map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(', ');
-    const whereClause = whereColumns.map(column => `${quoteIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(' AND ');
+    const setClause = setColumns.map(column => `${formatGeneratedIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(', ');
+    const whereClause = whereColumns.map(column => `${formatGeneratedIdentifier(column.sourceColumn)} = ${formatSqlValue(row[column.name])}`).join(' AND ');
     return `UPDATE ${relation} SET ${setClause} WHERE ${whereClause};`;
   }).join('\n');
 }
@@ -175,7 +175,11 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
         const source = columnMeta.find(column => column.name === colname);
         if (source?.sourceColumn) changes[source.sourceColumn] = edit.newValue;
       });
-      editsByRow.set(rowindex, { table: { label: firstSource.table, schema: firstSource.schema }, primaryKey, changes });
+      editsByRow.set(rowindex, {
+        table: { label: firstSource.table, schema: firstSource.schema, database: firstSource.database },
+        primaryKey,
+        changes,
+      });
     });
     const editedRowIndexes = [...editsByRow.keys()];
     const correlationId = `${Date.now()}-${Math.random()}`;

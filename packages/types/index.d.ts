@@ -509,12 +509,13 @@ export namespace NSDatabase {
     sourceColumn?: string;
     table?: string;
     schema?: string;
+    database?: string;
     isPk?: boolean;
     editable: boolean;
   }
 
   export interface IResultEdit {
-    table: { label: string; schema?: string };
+    table: { label: string; schema?: string; database?: string };
     primaryKey: { [column: string]: any };
     changes: { [column: string]: any };
   }
