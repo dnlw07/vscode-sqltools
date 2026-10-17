@@ -50,7 +50,7 @@ describe('results webview placement', () => {
     return view;
   }
 
-  it.each(['next', 'beside'])('uses automatic placement for %s and preserves focus', async location => {
+  it.each(['next', 'beside', 'right', 'bottom'])('uses automatic placement for %s and preserves focus', async location => {
     const view = await show(location);
     expect(view.viewColumn).toBe(2);
     expect(view.preserveFocus).toBe(true);
@@ -58,6 +58,21 @@ describe('results webview placement', () => {
     jest.advanceTimersByTime(500);
     await existing;
     expect(view.viewColumn).toBe(2);
+  });
+
+  it('never reuses a pinned tab for the same connection', () => {
+    const manager = new ResultsWebviewManager();
+    expect(manager.getReusableId('conn')).toBe('conn');
+    const first = manager.get('conn');
+    expect(manager.getReusableId('conn')).toBe('conn');
+    Object.defineProperty(first, 'isPinned', { value: true });
+    const second = manager.getReusableId('conn');
+    expect(second).toMatch(/^conn#/);
+    const view = manager.get(second);
+    expect(manager.getReusableId('conn')).toBe(second);
+    Object.defineProperty(view, 'isPinned', { value: true });
+    expect(manager.getReusableId('conn')).not.toBe(second);
+    expect(manager.getReusableId('other')).toBe('other');
   });
 
   it.each([['current', -1], ['end', 3], [4, 4], ['2', 2]])(

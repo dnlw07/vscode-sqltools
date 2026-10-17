@@ -651,7 +651,10 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
 
 
   private async _openResultsWebview(connId: string, reUseId?: string, forceNew = false) {
-    const requestId = getResultsRequestId(connId, reUseId, Config.results.reuseTabs, forceNew);
+    let requestId = getResultsRequestId(connId, reUseId, Config.results.reuseTabs, forceNew);
+    if (!reUseId && !forceNew && Config.results.reuseTabs === 'connection') {
+      requestId = this.resultsWebview.getReusableId(connId);
+    }
     const view = this.resultsWebview.get(requestId);
     view.onDidDispose(() => {
       this.client.sendRequest(ReleaseResultsRequest, { connId, requestId });

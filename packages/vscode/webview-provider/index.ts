@@ -1,4 +1,4 @@
-import { Uri, commands, Disposable, EventEmitter, ViewColumn, WebviewPanel, window } from 'vscode';
+import { Uri, commands, Disposable, EventEmitter, TabInputWebview, ViewColumn, WebviewPanel, window } from 'vscode';
 import { getIconPaths } from '@sqltools/vscode/icons';
 import Context from '@sqltools/vscode/context';
 import { EXT_NAMESPACE } from '@sqltools/util/constants';
@@ -126,6 +126,15 @@ export default abstract class WebviewProvider<State = any> implements Disposable
 
   public get isActive() {
     return this.panel && this.panel.active;
+  }
+
+  // The panel API does not expose its tab, so it is matched by group and label (preferring the active tab).
+  public get isPinned(): boolean {
+    if (!this.panel) return false;
+    const group = window.tabGroups.all.find(g => g.viewColumn === this.panel.viewColumn);
+    const tabs = (group?.tabs || []).filter(tab => tab.input instanceof TabInputWebview && tab.label === this.panel.title);
+    const tab = tabs.find(t => t.isActive === this.panel.active) || tabs[0];
+    return !!tab?.isPinned;
   }
 
   public prepareUrl(localResource: Uri | string) {

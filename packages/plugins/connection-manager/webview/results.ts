@@ -7,6 +7,7 @@ import { getNameFromId } from '@sqltools/util/connection';
 import { DISPLAY_NAME } from '@sqltools/util/constants';
 import { UIAction } from './ui/screens/Results/actions';
 import { ResultGroup } from './result-group';
+import generateId from '@sqltools/util/internal-id';
 
 class ResultsWebview extends WebviewProvider<ResultsScreenState> {
   protected id: string = 'Results';
@@ -38,13 +39,13 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
 
   async show() {
     const location = String(Config.results.location || 'next');
-    const automatic = !location || location === 'next' || location === 'beside';
+    const automatic = !location || ['next', 'beside', 'right', 'bottom'].includes(location);
     if (this.viewColumn === undefined && automatic) {
       await this.group.open(column => {
         this.whereToShow = column;
         super.show();
         return this;
-      });
+      }, location === 'bottom' ? 'bottom' : 'right');
     } else {
       if (this.viewColumn === undefined) {
         this.whereToShow = undefined;
@@ -145,5 +146,13 @@ export default class ResultsWebviewManager {
 
   public getActiveView = () => {
     return this.viewsMap[Object.keys(this.viewsMap).find(k => this.viewsMap[k] && this.viewsMap[k].isActive)];
+  }
+
+  // Per-connection reuse: a pinned tab is never overwritten; its results are kept and a new tab is used instead.
+  public getReusableId = (connId: string): string => {
+    const ids = Object.keys(this.viewsMap).filter(id => id === connId || id.startsWith(`${connId}#`));
+    if (!ids.length) return connId;
+    const free = ids.reverse().find(id => !this.viewsMap[id].isPinned);
+    return free || `${connId}#${generateId()}`;
   }
 }

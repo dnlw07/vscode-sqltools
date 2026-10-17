@@ -7,6 +7,42 @@ order: 10
 
 ## v0.28
 
+### v0.28.61 - (Oct 19, 2026)
+
+- Resize the bottom results group using pixel-scaled sizes. Fractions were clamped to the minimum size on a fresh group, so the first results covered the editor until VS Code relaid out.
+
+### v0.28.60 - (Oct 19, 2026)
+
+- Log the editor layout (channel `SQLTools`, logger `results-layout`) each time the bottom results group is placed, to diagnose layout flashes.
+
+### v0.28.59 - (Oct 19, 2026)
+
+- Re-apply the bottom layout after the first results group is created and its webview attached, so the first query no longer leaves the results covering the text editor.
+
+### v0.28.58 - (Oct 19, 2026)
+
+- Enforce the bottom results group size before the results webview is attached, so the results no longer cover the text editor for a moment when they open.
+
+### v0.28.57 - (Oct 19, 2026)
+
+- Re-check the bottom results group size shortly after results open, because VS Code could still reflow the editor grid and leave the results covering the text editor.
+
+### v0.28.56 - (Oct 19, 2026)
+
+- Open the bottom results group from a single editor with a flat vertical split instead of a nested one, which could leave the results covering the whole editor area.
+
+### v0.28.55 - (Oct 19, 2026)
+
+- The bottom results group (`sqltools.results.location: bottom`) now takes a quarter of the editor height instead of a third, and is shrunk back to that size each time results open if it has grown larger. A smaller size you set manually is kept.
+
+### v0.28.54 - (Oct 19, 2026)
+
+- A pinned results tab is no longer overwritten when `sqltools.results.reuseTabs` is `connection`; new results open in another tab for that connection.
+
+### v0.28.53 - (Oct 19, 2026)
+
+- Add `right` and `bottom` values to `sqltools.results.location`. `bottom` opens results in a locked group below the editors, created at one third of the editor height. `next` (default) still opens results on the right.
+
 ### v0.28.52 - (Oct 19, 2026)
 
 - Raise the size limit of the persisted autocomplete cache (`autosuggestions.json`) from 25 MB to 100 MB.

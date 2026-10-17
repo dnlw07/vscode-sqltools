@@ -30,6 +30,7 @@ describe('automatic result group placement', () => {
 
   beforeEach(() => {
     group = new ResultGroup();
+    (commands.executeCommand as jest.Mock).mockClear();
     values = { terminal: true };
     Object.assign(window.tabGroups, { all: [{ viewColumn: 1, tabs: [{ input: {} }] }] });
     (commands.executeCommand as jest.Mock).mockImplementation(async command => {
@@ -150,6 +151,82 @@ describe('automatic result group placement', () => {
     expect(commands.executeCommand).toHaveBeenCalledWith('vscode.setEditorLayout', {
       orientation: 0, groups: [{ groups: [{ size: 0.4 }, { size: 0.6 }] }, {}],
     });
+  });
+
+  it('opens the first output below the files at a quarter of the height', async () => {
+    const create = jest.fn(column => { expect(column).toBe(2); return output(2); });
+    await group.open(create, 'bottom');
+    const [, layout] = (commands.executeCommand as jest.Mock).mock.calls.find(call => call[0] === 'vscode.setEditorLayout');
+    expect(layout.groups[0]).toEqual({ size: 0.75 });
+    expect(layout.groups[1]).toEqual({ size: 0.25 });
+  });
+
+  it('rescales an existing vertical layout when adding the bottom group', async () => {
+    (commands.executeCommand as jest.Mock).mockImplementation(async command => {
+      if (command === 'vscode.getEditorLayout') return {
+        orientation: 1, groups: [{ size: 0.4 }, { size: 0.6 }],
+      };
+      Object.assign(window.tabGroups, { all: [
+        { viewColumn: 1, tabs: [] }, { viewColumn: 2, tabs: [] }, { viewColumn: 3, tabs: [] },
+      ] });
+    });
+    await group.open(() => ({ viewColumn: 3 }), 'bottom');
+    const [, layout] = (commands.executeCommand as jest.Mock).mock.calls.find(call => call[0] === 'vscode.setEditorLayout');
+    expect(layout.orientation).toBe(1);
+    const sizes = layout.groups.map((g: { size: number }) => Math.round(g.size * 1000) / 1000);
+    expect(sizes).toEqual([0.3, 0.45, 0.25]);
+  });
+
+  it('shrinks a bottom results group that grew past its share, keeping the others proportional', async () => {
+    const resized: any[] = [];
+    (commands.executeCommand as jest.Mock).mockImplementation(async (command, layout) => {
+      if (command === 'vscode.getEditorLayout') return { orientation: 1, groups: [{ size: 0.1 }, { size: 0.1 }, { size: 0.8 }] };
+      if (command === 'vscode.setEditorLayout') resized.push(layout);
+    });
+    Object.assign(window.tabGroups, { all: [
+      { viewColumn: 1, tabs: [{ input: {} }] }, { viewColumn: 2, tabs: [{ input: {} }] },
+      { viewColumn: 3, tabs: [{ input: new TabInputWebview('mainThreadWebview-Results') }] },
+    ] });
+    output(3);
+    Object.assign(window.tabGroups, { all: [
+      { viewColumn: 1, tabs: [{ input: {} }] }, { viewColumn: 2, tabs: [{ input: {} }] },
+      { viewColumn: 3, tabs: [{ input: new TabInputWebview('mainThreadWebview-Results') }] },
+    ] });
+    await group.open(() => output(3), 'bottom');
+    expect(resized.length).toBeGreaterThanOrEqual(1);
+    expect(resized[0].groups.map((g: { size: number }) => Math.round(g.size * 1000) / 1000)).toEqual([0.375, 0.375, 0.25]);
+  });
+
+  it('does not touch a bottom results group at or below its share', async () => {
+    (commands.executeCommand as jest.Mock).mockImplementation(async command => {
+      if (command === 'vscode.getEditorLayout') return { orientation: 1, groups: [{ size: 0.85 }, { size: 0.15 }] };
+    });
+    output(2);
+    await group.open(() => output(2), 'bottom');
+    expect(commands.executeCommand).not.toHaveBeenCalledWith('vscode.setEditorLayout', expect.anything());
+  });
+
+  it('reuses an existing results group even when bottom is requested', async () => {
+    output(2);
+    const create = jest.fn((_column: ViewColumn) => output(2));
+    await group.open(create, 'bottom');
+    expect(create).toHaveBeenCalledWith(2);
+    expect(commands.executeCommand).not.toHaveBeenCalledWith('vscode.setEditorLayout', expect.anything());
+  });
+
+  it('keeps the original right-hand layout and never resizes groups for right', async () => {
+    const calls: any[] = [];
+    (commands.executeCommand as jest.Mock).mockImplementation(async (command, layout) => {
+      calls.push([command, layout]);
+      if (command === 'vscode.getEditorLayout') return { orientation: 1, groups: [{ size: 0.1 }, { size: 0.9 }] };
+      Object.assign(window.tabGroups, { all: [...window.tabGroups.all, { viewColumn: 3, tabs: [] }] });
+    });
+    await group.open(() => output(3), 'right');
+    await group.open(() => output(3), 'right');
+    const sets = calls.filter(([command]) => command === 'vscode.setEditorLayout');
+    expect(sets).toEqual([['vscode.setEditorLayout', {
+      orientation: 0, groups: [{ groups: [{ size: 0.1 }, { size: 0.9 }] }, {}],
+    }]]);
   });
 
   it('rejects an output closed before placement and keeps later opens usable', async () => {
