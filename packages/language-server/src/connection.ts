@@ -208,18 +208,24 @@ export default class Connection {
   }
 
   public async generateTableDDL(table: NSDatabase.ITable): Promise<string> {
-    if (!table || table.type !== ContextValue.TABLE || !table.label || !table.label.trim()) {
-      throw new Error('Generate DDL requires a table.');
+    const supportedTypes = [ContextValue.TABLE, ContextValue.VIEW, ContextValue.MATERIALIZED_VIEW, ContextValue.FUNCTION, ContextValue.PROCEDURE];
+    if (!table || !supportedTypes.includes(table.type as ContextValue) || !table.label || !table.label.trim()) {
+      throw new Error('Generate DDL requires a table, view or routine.');
     }
     if (!this.isConnected()) {
       throw new Error('Connect to the database before generating DDL.');
     }
-    if (typeof this.conn.generateTableDDL !== 'function') {
-      throw new Error(`Generate DDL is not supported by ${this.getDriver()}.`);
+    const generate = typeof this.conn.generateDDL === 'function'
+      ? () => this.conn.generateDDL(table)
+      : table.type === ContextValue.TABLE && typeof this.conn.generateTableDDL === 'function'
+        ? () => this.conn.generateTableDDL(table)
+        : null;
+    if (!generate) {
+      throw new Error(`Generate DDL is not supported by ${this.getDriver()}${table.type === ContextValue.TABLE ? '' : ' for this object type'}.`);
     }
-    const ddl = await this.conn.generateTableDDL(table).catch(this.decorateException);
+    const ddl = await generate().catch(this.decorateException);
     if (typeof ddl !== 'string' || !ddl.trim()) {
-      throw new Error(`No table DDL was returned by ${this.getDriver()}.`);
+      throw new Error(`No DDL was returned by ${this.getDriver()}.`);
     }
     return ddl;
   }

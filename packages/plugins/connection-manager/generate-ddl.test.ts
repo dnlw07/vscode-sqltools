@@ -60,11 +60,12 @@ describe('Generate DDL selection', () => {
     expect(await selectDDLTarget({}, deps)).toBeUndefined();
   });
 
-  it('rejects non-table nodes', async () => {
-    const view = { ...table };
-    Object.defineProperty(view, 'type', { value: ContextValue.VIEW });
-    await expect(selectDDLTarget({ conn, table: view }, selectionDependencies()))
-      .rejects.toThrow('tables only');
+  it('accepts views and rejects unsupported node types', async () => {
+    const view = { ...table, type: ContextValue.VIEW } as any;
+    expect(await selectDDLTarget({ conn, table: view }, selectionDependencies())).toEqual({ conn, table: view });
+    const column = { ...table, type: ContextValue.COLUMN } as any;
+    await expect(selectDDLTarget({ conn, table: column }, selectionDependencies()))
+      .rejects.toThrow('tables, views and routines only');
   });
 });
 
@@ -101,7 +102,7 @@ describe('Generate DDL presentation', () => {
     deps.requestDDL.mockResolvedValue(ddl);
     await generateDDL(deps);
     expect(deps.openSQL).not.toHaveBeenCalled();
-    expect(deps.onError).toHaveBeenCalledWith('Error generating table DDL', expect.any(Error));
+    expect(deps.onError).toHaveBeenCalledWith('Error generating DDL', expect.any(Error));
   });
 
   it('reports driver failures without opening partial SQL', async () => {
@@ -110,7 +111,7 @@ describe('Generate DDL presentation', () => {
     deps.requestDDL.mockRejectedValue(error);
     await generateDDL(deps);
     expect(deps.openSQL).not.toHaveBeenCalled();
-    expect(deps.onError).toHaveBeenCalledWith('Error generating table DDL', error);
+    expect(deps.onError).toHaveBeenCalledWith('Error generating DDL', error);
   });
 
   it('reports editor opening failures', async () => {
@@ -118,6 +119,6 @@ describe('Generate DDL presentation', () => {
     const error = new Error('Cannot open document');
     deps.openSQL.mockRejectedValue(error);
     await generateDDL(deps);
-    expect(deps.onError).toHaveBeenCalledWith('Error generating table DDL', error);
+    expect(deps.onError).toHaveBeenCalledWith('Error generating DDL', error);
   });
 });

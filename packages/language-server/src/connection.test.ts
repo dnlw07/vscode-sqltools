@@ -64,19 +64,26 @@ describe('connection completion cache', () => {
       expect(driver.generateTableDDL).toHaveBeenCalledWith(table);
     });
 
-    it('rejects views even when the driver implements the hook', async () => {
+    it('rejects views for drivers that only implement the table hook', async () => {
       driver.generateTableDDL = jest.fn(async () => 'CREATE VIEW v AS SELECT 1;');
       await connection.connect();
-      const view = { ...table };
-      Object.defineProperty(view, 'type', { value: ContextValue.VIEW });
-      await expect(connection.generateTableDDL(view)).rejects.toThrow('requires a table');
+      const view = { ...table, type: ContextValue.VIEW } as NSDatabase.ITable;
+      await expect(connection.generateTableDDL(view)).rejects.toThrow('not supported by');
       expect(driver.generateTableDDL).not.toHaveBeenCalled();
+    });
+
+    it('uses the generic hook for views and routines', async () => {
+      driver.generateDDL = jest.fn(async () => 'CREATE VIEW v AS SELECT 1;');
+      await connection.connect();
+      const view = { ...table, type: ContextValue.VIEW } as NSDatabase.ITable;
+      await expect(connection.generateTableDDL(view)).resolves.toBe('CREATE VIEW v AS SELECT 1;');
+      expect(driver.generateDDL).toHaveBeenCalledWith(view);
     });
 
     it('rejects empty DDL returned by the driver', async () => {
       driver.generateTableDDL = jest.fn(async () => ' \n ');
       await connection.connect();
-      await expect(connection.generateTableDDL(table)).rejects.toThrow('No table DDL');
+      await expect(connection.generateTableDDL(table)).rejects.toThrow('No DDL');
     });
 
     it('propagates actual driver failures', async () => {

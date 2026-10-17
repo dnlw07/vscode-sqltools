@@ -2,7 +2,7 @@
     "name": "sqltools",
     "displayName": "SQLTools",
     "description": "Connecting users to many of the most commonly used databases. Welcome to database management done right.",
-    "version": "0.28.50",
+    "version": "0.28.51",
     "publisher": "mtxr",
     "license": "MIT",
     "preview": false,
@@ -220,7 +220,7 @@
             {
                 "title": "Generate DDL",
                 "command": "sqltools.generateDDL",
-                "category": "SQLTools Connection"
+                "category": "SQLTools"
             },
             {
                 "title": "Format Selected Query For Any Document",
@@ -1219,7 +1219,7 @@
                 },
                 {
                     "command": "sqltools.generateDDL",
-                    "when": "view == sqltoolsViewConnectionExplorer && viewItem == connection.table",
+                    "when": "view == sqltoolsViewConnectionExplorer && viewItem =~ /^connection\\.(table|view|materializedView|function|procedure)$/",
                     "group": "navigation@2.1"
                 },
                 {

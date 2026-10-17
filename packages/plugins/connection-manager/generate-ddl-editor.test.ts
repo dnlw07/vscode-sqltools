@@ -30,13 +30,13 @@ describe('Generate DDL editor and contributions', () => {
 
   it('contributes Generate DDL next to Describe Table and keeps it available in the palette', () => {
     expect(manifest.contributes.commands).toContainEqual({
-      title: 'Generate DDL', command: 'sqltools.generateDDL', category: 'SQLTools Connection',
+      title: 'Generate DDL', command: 'sqltools.generateDDL', category: 'SQLTools',
     });
     const menu = manifest.contributes.menus['view/item/context'];
     const describeIndex = menu.findIndex(item => item.command === 'sqltools.describeTable');
     expect(menu[describeIndex + 1]).toEqual({
       command: 'sqltools.generateDDL',
-      when: 'view == sqltoolsViewConnectionExplorer && viewItem == connection.table',
+      when: 'view == sqltoolsViewConnectionExplorer && viewItem =~ /^connection\\.(table|view|materializedView|function|procedure)$/',
       group: 'navigation@2.1',
     });
     expect(manifest.contributes.menus.commandPalette.some(item => item.command === 'sqltools.generateDDL'

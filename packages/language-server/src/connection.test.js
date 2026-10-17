@@ -61,18 +61,24 @@ const cachePath = require('path').join(require('os').tmpdir(), `sqltools-autosug
             await (0, globals_1.expect)(connection.generateTableDDL(table)).resolves.toBe(ddl);
             (0, globals_1.expect)(driver.generateTableDDL).toHaveBeenCalledWith(table);
         });
-        (0, globals_1.it)('rejects views even when the driver implements the hook', async () => {
+        (0, globals_1.it)('rejects views for drivers that only implement the table hook', async () => {
             driver.generateTableDDL = globals_1.jest.fn(async () => 'CREATE VIEW v AS SELECT 1;');
             await connection.connect();
-            const view = { ...table };
-            Object.defineProperty(view, 'type', { value: types_1.ContextValue.VIEW });
-            await (0, globals_1.expect)(connection.generateTableDDL(view)).rejects.toThrow('requires a table');
+            const view = { ...table, type: types_1.ContextValue.VIEW };
+            await (0, globals_1.expect)(connection.generateTableDDL(view)).rejects.toThrow('not supported by');
             (0, globals_1.expect)(driver.generateTableDDL).not.toHaveBeenCalled();
+        });
+        (0, globals_1.it)('uses the generic hook for views and routines', async () => {
+            driver.generateDDL = globals_1.jest.fn(async () => 'CREATE VIEW v AS SELECT 1;');
+            await connection.connect();
+            const view = { ...table, type: types_1.ContextValue.VIEW };
+            await (0, globals_1.expect)(connection.generateTableDDL(view)).resolves.toBe('CREATE VIEW v AS SELECT 1;');
+            (0, globals_1.expect)(driver.generateDDL).toHaveBeenCalledWith(view);
         });
         (0, globals_1.it)('rejects empty DDL returned by the driver', async () => {
             driver.generateTableDDL = globals_1.jest.fn(async () => ' \n ');
             await connection.connect();
-            await (0, globals_1.expect)(connection.generateTableDDL(table)).rejects.toThrow('No table DDL');
+            await (0, globals_1.expect)(connection.generateTableDDL(table)).rejects.toThrow('No DDL');
         });
         (0, globals_1.it)('propagates actual driver failures', async () => {
             driver.generateTableDDL = globals_1.jest.fn(async () => { throw new Error('Catalog permission denied'); });

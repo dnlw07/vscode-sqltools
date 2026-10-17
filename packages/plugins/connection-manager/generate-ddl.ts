@@ -17,6 +17,10 @@ interface SelectionDependencies {
   pickTable: (conn: IConnection) => Promise<NSDatabase.ITable | undefined>;
 }
 
+const DDL_TYPES: string[] = [ContextValue.TABLE, ContextValue.VIEW, ContextValue.MATERIALIZED_VIEW, ContextValue.FUNCTION, ContextValue.PROCEDURE];
+
+export const isDDLItem = (item: { type?: string }) => DDL_TYPES.includes(item.type);
+
 export async function selectDDLTarget(
   selection: DDLSelection,
   deps: SelectionDependencies
@@ -25,7 +29,7 @@ export async function selectDDLTarget(
   if (!conn) return;
   const table = selection.table || await deps.pickTable(conn);
   if (!table) return;
-  if (table.type !== ContextValue.TABLE) throw new Error('Generate DDL supports tables only.');
+  if (!isDDLItem(table)) throw new Error('Generate DDL supports tables, views and routines only.');
   return { conn, table };
 }
 
@@ -42,10 +46,10 @@ export async function generateDDL(deps: GenerationDependencies): Promise<void> {
     const target = await deps.selectTarget();
     if (!target) return;
     const ddl = await deps.withProgress(`Generating DDL for ${target.table.label}`, () => deps.requestDDL(target));
-    if (typeof ddl !== 'string' || !ddl.trim()) throw new Error('The driver returned no table DDL.');
+    if (typeof ddl !== 'string' || !ddl.trim()) throw new Error('The driver returned no DDL.');
     await deps.openSQL(ddl);
   } catch (error) {
     if (error instanceof DismissedError) return;
-    deps.onError('Error generating table DDL', error);
+    deps.onError('Error generating DDL', error);
   }
 }

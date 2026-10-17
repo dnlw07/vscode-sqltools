@@ -163,14 +163,23 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
         connect: () => this._connect(),
         setConnection: conn => this._setConnection(conn),
         pickTable: conn => quickPickSearch<NSDatabase.ITable>(
-          search => this.client.sendRequest(SearchConnectionItemsRequest, {
-            conn, itemType: ContextValue.TABLE, search,
-          }).then(({ results }) => results.filter(item => item.type === ContextValue.TABLE)),
+          async search => {
+            const types = [ContextValue.TABLE, ContextValue.VIEW, ContextValue.FUNCTION, ContextValue.PROCEDURE];
+            const lists = await Promise.all(types.map(itemType => this.client.sendRequest(SearchConnectionItemsRequest, {
+              conn, itemType, search,
+            }).then(({ results }) => results, () => [] as NSDatabase.SearchableItem[])));
+            const seen = new Set<string>();
+            return ([] as any[]).concat(...lists).filter((item: any) => {
+              if (!types.includes(item.type)) return false;
+              const key = [item.type, item.database, item.schema, item.label].join('\u0000');
+              return seen.has(key) ? false : (seen.add(key), true);
+            }) as NSDatabase.ITable[];
+          },
           {
             matchOnDescription: true,
             matchOnDetail: true,
-            title: `Tables in ${conn.database || conn.name}`,
-            placeHolder: 'Select a table to generate DDL...',
+            title: `Objects in ${conn.database || conn.name}`,
+            placeHolder: 'Select a table, view or routine to generate DDL...',
           }
         ),
       }),

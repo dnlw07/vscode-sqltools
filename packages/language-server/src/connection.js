@@ -193,18 +193,24 @@ class Connection {
         return `-- Not supported by ${this.getDriver()}`;
     }
     async generateTableDDL(table) {
-        if (!table || table.type !== types_1.ContextValue.TABLE || !table.label || !table.label.trim()) {
-            throw new Error('Generate DDL requires a table.');
+        const supportedTypes = [types_1.ContextValue.TABLE, types_1.ContextValue.VIEW, types_1.ContextValue.MATERIALIZED_VIEW, types_1.ContextValue.FUNCTION, types_1.ContextValue.PROCEDURE];
+        if (!table || !supportedTypes.includes(table.type) || !table.label || !table.label.trim()) {
+            throw new Error('Generate DDL requires a table, view or routine.');
         }
         if (!this.isConnected()) {
             throw new Error('Connect to the database before generating DDL.');
         }
-        if (typeof this.conn.generateTableDDL !== 'function') {
-            throw new Error(`Generate DDL is not supported by ${this.getDriver()}.`);
+        const generate = typeof this.conn.generateDDL === 'function'
+            ? () => this.conn.generateDDL(table)
+            : table.type === types_1.ContextValue.TABLE && typeof this.conn.generateTableDDL === 'function'
+                ? () => this.conn.generateTableDDL(table)
+                : null;
+        if (!generate) {
+            throw new Error(`Generate DDL is not supported by ${this.getDriver()}${table.type === types_1.ContextValue.TABLE ? '' : ' for this object type'}.`);
         }
-        const ddl = await this.conn.generateTableDDL(table).catch(this.decorateException);
+        const ddl = await generate().catch(this.decorateException);
         if (typeof ddl !== 'string' || !ddl.trim()) {
-            throw new Error(`No table DDL was returned by ${this.getDriver()}.`);
+            throw new Error(`No DDL was returned by ${this.getDriver()}.`);
         }
         return ddl;
     }

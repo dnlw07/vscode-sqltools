@@ -355,6 +355,12 @@ export interface IConnectionDriver {
    */
   generateTableDDL?(table: NSDatabase.ITable): Promise<string>;
   /**
+   * Generate a DDL script for a table, view or routine without executing it.
+   * Optional: when present it is used for every supported item type; otherwise
+   * only tables are supported through `generateTableDDL`.
+   */
+  generateDDL?(item: NSDatabase.ITable | NSDatabase.IFunction | NSDatabase.IProcedure): Promise<string>;
+  /**
    * Get an INSERT query for item
    */
   getInsertQuery?(params: { item: NSDatabase.ITable, columns: Array<NSDatabase.IColumn> }): Promise<string>;
