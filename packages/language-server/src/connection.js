@@ -21,7 +21,7 @@ class Connection {
     credentials;
     static completionSnapshots = new Map();
     static maxCompletionSnapshots = 50;
-    static maxPersistedCompletionCacheBytes = 25 * 1024 * 1024;
+    static maxPersistedCompletionCacheBytes = 100 * 1024 * 1024;
     static completionSnapshotsLoaded = false;
     static persistenceQueue = Promise.resolve();
     static completionSnapshotPath = (0, path_2.getDataPath)('autosuggestions.json');
