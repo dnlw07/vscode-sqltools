@@ -1,7 +1,4 @@
 import { commands, ConfigurationTarget, TabInputWebview, ViewColumn, window, workspace } from 'vscode';
-import { createLogger } from '@sqltools/log/src';
-
-const log = createLogger('results-layout');
 
 interface ResultPanel {
   readonly viewColumn: ViewColumn | undefined;
@@ -105,15 +102,11 @@ export class ResultGroup {
 
   // Layout sizes are proportions; a results group that grew past its share (e.g. after a layout
   // rebuild) is shrunk back, while a smaller group the user resized is left alone.
-  private async limitBottomSize(column: ViewColumn | undefined, force = false, stage = 'check') {
+  private async limitBottomSize(column: ViewColumn | undefined, force = false) {
     const groups = window.tabGroups.all;
     const last = groups[groups.length - 1];
-    if (!last || last.viewColumn !== column || groups.length < 2) {
-      log.info(`[${stage}] skipped: column=${column} groups=${groups.length} lastColumn=${last?.viewColumn}`);
-      return;
-    }
+    if (!last || last.viewColumn !== column || groups.length < 2) return;
     const layout = await commands.executeCommand<EditorLayout>('vscode.getEditorLayout');
-    log.info(`[${stage}] force=${force} groups=${groups.length} layout=${JSON.stringify(layout)}`);
     if (!layout || layout.orientation !== 1 || layout.groups.length < 2) return;
     const count = layout.groups.length;
     const sizes = layout.groups.map(group => group.size ?? 1 / count);
@@ -122,8 +115,7 @@ export class ResultGroup {
     if (!force && bottom <= bottomShare + bottomTolerance) return;
     const others = total - sizes[count - 1];
     if (others <= 0) return;
-    log.info(`[${stage}] resizing bottom from ${bottom.toFixed(3)} to ${bottomShare}`);
-    // Sizes are scaled to the current pixel total; tiny fractions are clamped to the minimum group size on a fresh group.
+    // getEditorLayout returns pixels; plain fractions would be clamped to the minimum group size on a fresh group.
     await commands.executeCommand('vscode.setEditorLayout', {
       orientation: 1,
       groups: layout.groups.map((group, index) => ({
@@ -147,7 +139,7 @@ export class ResultGroup {
       const column = await this.destination(position);
       const created = window.tabGroups.all.length > before;
       // Enforce the size before the webview is attached so the editor area is never covered, even briefly.
-      if (position === 'bottom') await this.limitBottomSize(column, created, `before-attach created=${created}`).catch(() => undefined);
+      if (position === 'bottom') await this.limitBottomSize(column, created).catch(() => undefined);
       const panel = create(column);
       if (panel.viewColumn === undefined) {
         await new Promise<void>((resolve, reject) => {
@@ -164,11 +156,10 @@ export class ResultGroup {
         });
       }
       if (position === 'bottom') {
-        // A freshly created group reports proportions that look right while the rendered layout is not, so it is re-applied.
-        await this.limitBottomSize(panel.viewColumn, created, 'after-attach').catch(() => undefined);
-        // VS Code can still reflow the grid while the new webview is being attached, so re-check shortly after.
-        for (const delay of [50, 200, 600, 1500]) {
-          const timer = setTimeout(() => this.limitBottomSize(panel.viewColumn, created, `+${delay}ms`).catch(() => undefined), delay);
+        await this.limitBottomSize(panel.viewColumn, created).catch(() => undefined);
+        // VS Code reflows the grid while the new webview is being attached; the layout settles within ~200 ms.
+        for (const delay of [50, 200]) {
+          const timer = setTimeout(() => this.limitBottomSize(panel.viewColumn, created).catch(() => undefined), delay);
           (timer as any).unref?.();
         }
       }
