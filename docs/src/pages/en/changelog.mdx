@@ -7,6 +7,18 @@ order: 10
 
 ## v0.28
 
+### v0.28.65 - (Oct 19, 2026)
+
+- The no-primary-key notice in the results grid now lists the columns skipped because their type cannot be compared, and states that a save is rejected unless exactly one row matches.
+
+### v0.28.64 - (Oct 19, 2026)
+
+- Grid editing without primary key columns skips columns that cannot be compared (PostgreSQL json/xml/geometric types) when locating the row; the save is still rejected unless the remaining columns match exactly one row.
+
+### v0.28.63 - (Oct 19, 2026)
+
+- The "no primary key" notice in the results grid now reads "No primary key columns in this result", since it also covers selects that omit the primary key columns of the table.
+
 ### v0.28.62 - (Oct 19, 2026)
 
 - Remove the temporary layout logging and the redundant late re-checks of the bottom results group size.

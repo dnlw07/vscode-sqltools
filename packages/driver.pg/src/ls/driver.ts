@@ -318,8 +318,9 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
 
     const metadata = await client.query({
       text: `SELECT a.attrelid::int AS "tableId", n.nspname AS schema, c.relname AS table, a.attnum::int AS "columnId", a.attname AS column,
-        EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)) AS "isPk"
-        FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+        EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)) AS "isPk",
+        (t.typname IN ('json', 'xml', 'point', 'box', 'line', 'lseg', 'path', 'polygon', 'circle', '_json', '_xml', '_point', '_box', '_line', '_lseg', '_path', '_polygon', '_circle')) AS "notComparable"
+        FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_type t ON t.oid = a.atttypid
         WHERE a.attrelid = $1::oid AND a.attnum > 0 AND NOT a.attisdropped`,
       values: [tableIds[0]],
     });
@@ -327,19 +328,20 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     const resolved = fields.map((field, index) => {
       const source = byAttribute.get(`${field.tableID}:${field.columnID}`);
       return source
-        ? { name: cols[index], sourceColumn: source.column, table: source.table, schema: source.schema, isPk: source.isPk, editable: true }
+        ? { name: cols[index], sourceColumn: source.column, table: source.table, schema: source.schema, isPk: source.isPk, comparable: !source.notComparable, editable: true }
         : { name: cols[index], editable: false };
     });
     const primaryKeys = metadata.rows.filter(column => column.isPk).map(column => column.column);
     const includedColumns = new Set(resolved.map(column => column.sourceColumn));
     const hasCompletePrimaryKey = primaryKeys.length > 0 && primaryKeys.every(column => includedColumns.has(column));
     if (!hasCompletePrimaryKey) {
-      // A projection can omit a PK column, so use every returned source column
+      // A projection can omit a PK column, so use every comparable returned source column
       // as the row identity instead of claiming that the incomplete PK is safe.
-      return {
-        columnMeta: resolved.map(column => ({ ...column, isPk: false })),
-        editable: true,
-      };
+      const columnMeta = resolved.map(column => ({ ...column, isPk: false }));
+      if (!columnMeta.some(column => column.sourceColumn && column.comparable)) {
+        return { editable: false, nonEditableReason: 'Result has no columns that can identify a row.' };
+      }
+      return { columnMeta, editable: true };
     }
     return { columnMeta: resolved, editable: true };
   }

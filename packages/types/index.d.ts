@@ -517,6 +517,8 @@ export namespace NSDatabase {
     schema?: string;
     database?: string;
     isPk?: boolean;
+    // false for types that cannot be compared in a WHERE clause (LOB, JSON, ARRAY...)
+    comparable?: boolean;
     editable: boolean;
   }
 

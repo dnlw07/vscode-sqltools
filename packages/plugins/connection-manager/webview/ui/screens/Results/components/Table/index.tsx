@@ -163,7 +163,7 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
       const row = rows[rowindex];
       const firstSource = columnMeta.find(column => colEdits.has(column.name));
       if (!firstSource?.table || !firstSource.schema) return;
-      const matchColumns = hasPrimaryKey ? columnMeta.filter(column => column.isPk) : columnMeta.filter(column => column.sourceColumn);
+      const matchColumns = hasPrimaryKey ? columnMeta.filter(column => column.isPk) : columnMeta.filter(column => column.sourceColumn && column.comparable !== false);
       const primaryKey = matchColumns.reduce((values, column) => {
         if (!column.sourceColumn) return values;
         const pending = colEdits.get(column.name);
@@ -646,7 +646,9 @@ const Table = ({ setContextState }: { setContextState: (state: Partial<ResultsSc
         {!error && !editable && nonEditableReason && <div className={style.readOnlyNotice}>{nonEditableReason}</div>}
         {pendingEditCount > 0 && <div className={style.editToolbar}>
           <span>{pendingEditCount} unsaved change{pendingEditCount === 1 ? '' : 's'}</span>
-          {editable && !hasPrimaryKey && <span className={style.noPkWarning}>No primary key set on this table - updates will match rows using all columns.</span>}
+          {editable && !hasPrimaryKey && <span className={style.noPkWarning}>{columnMeta.some(column => column.comparable === false)
+            ? `No primary key columns in this result - updates will match rows using all columns except ${columnMeta.filter(column => column.comparable === false).map(column => column.name).join(', ')} (type cannot be compared). A save is rejected unless exactly one row matches.`
+            : 'No primary key columns in this result - updates will match rows using all columns. A save is rejected unless exactly one row matches.'}</span>}
           {hasPendingPrimaryKeyEdit && <span className={style.noPkWarning}>Primary key values are being changed. Ensure the new values are unique.</span>}
           {saveError && <span className={style.saveError}>{saveError}</span>}
           <button type="button" disabled={saving} onClick={cancelEdits}>Cancel</button>
