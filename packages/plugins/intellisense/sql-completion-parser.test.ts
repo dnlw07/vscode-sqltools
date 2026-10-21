@@ -62,6 +62,28 @@ describe('Db2 completion parser compatibility', () => {
     });
   });
 
+  describe('PostgreSQL completion parser compatibility', () => {
+    it.each([
+      "SELECT * FROM s.t WHERE lower (object_nm) ILIKE ANY (ARRAY['%karty_hce%']) AND |",
+      "SELECT * FROM s.t WHERE lower(object_nm) ILIKE '%karty_hce%' AND |",
+    ])('retains base-table column scope after ILIKE: %s', query => {
+      const offset = query.indexOf('|');
+      const ast = parseSqlForCompletion(query.replace('|', ''), offset, 'SQLTools PostgreSQL/Cockroach Driver');
+
+      expect(tableNames(ast)).toEqual(['s.t']);
+      expect(ast.suggestColumns.source).toBe('where');
+    });
+
+    it('keeps the parser offset aligned after ILIKE while completing ORDER BY columns', () => {
+      const query = "SELECT * FROM s.t WHERE lower (object_nm) ILIKE ANY (ARRAY['%karty_hce%']) ORDER BY |";
+      const offset = query.indexOf('|');
+      const ast = parseSqlForCompletion(query.replace('|', ''), offset, 'SQLTools PostgreSQL/Cockroach Driver');
+
+      expect(tableNames(ast)).toEqual(['s.t']);
+      expect(ast.suggestColumns.source).toBe('order by');
+    });
+  });
+
   // These characterize existing Hue limitations, not successful Db2 syntax support.
   describe('known Db2 completion limitations', () => {
     it('misreads unaliased FETCH FIRST as a table alias in the projection', () => {

@@ -59,7 +59,9 @@ function restoreIdentifiers(value: unknown, replacements: Map<string, string>): 
 }
 
 export function parseSqlForCompletion(text: string, offset: number, driver?: string) {
-  if (!/^db2(?: driver for sqltools)?$/i.test(driver || '')) {
+  const isDb2 = /^db2(?: driver for sqltools)?$/i.test(driver || '');
+  const isPostgres = /postgres/i.test(driver || '');
+  if (!isDb2 && !isPostgres) {
     return sqlAutocompleteParser.parseSql(text.slice(0, offset), text.slice(offset));
   }
 
@@ -77,10 +79,33 @@ export function parseSqlForCompletion(text: string, offset: number, driver?: str
     const previous = lexemes[i - 1]?.text.toUpperCase();
     const next = lexemes[i + 1]?.text;
     let replacement: string;
+    let replacementEnd = token.start + token.text.length;
+    // Hue doesn't parse PostgreSQL ILIKE or ILIKE ANY(...). Normalize only parser input and
+    // retain the original length so completion offsets remain aligned with the user's SQL.
+    if (isPostgres && word === 'ILIKE') {
+      if (lexemes[i + 1]?.text.toUpperCase() === 'ANY' && lexemes[i + 2]?.text === '(') {
+        let depth = 0;
+        for (let end = i + 2; end < lexemes.length; end++) {
+          if (lexemes[end].text === '(') depth++;
+          else if (lexemes[end].text === ')' && --depth === 0) {
+            replacementEnd = lexemes[end].start + lexemes[end].text.length;
+            break;
+          }
+        }
+        if (replacementEnd > token.start + token.text.length) {
+          const prefix = "LIKE 'x'";
+          replacement = prefix + text.slice(token.start + prefix.length, replacementEnd).replace(/[^\r\n]/g, ' ');
+          while (i + 1 < lexemes.length && lexemes[i + 1].start < replacementEnd) i++;
+        } else {
+          replacement = 'LIKE ';
+        }
+      } else {
+        replacement = 'LIKE ';
+      }
     // Hue supports UNION, but not Db2 EXCEPT. Equal-length input preserves cursor and wildcard locations.
-    if (word === 'EXCEPT' && previous !== '.' && next !== '.') {
+    } else if (isDb2 && word === 'EXCEPT' && previous !== '.' && next !== '.') {
       replacement = 'UNION ';
-    } else if (word === 'TABLE' && next !== '(' &&
+    } else if (isDb2 && word === 'TABLE' && next !== '(' &&
       !['CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'RENAME', 'LOCK', 'TEMP', 'TEMPORARY', 'REORG', 'DESCRIBE'].includes(previous) &&
       !(previous === 'ON' && lexemes[i - 2]?.text.toUpperCase() === 'COMMENT')) {
       replacement = originals.get(token.text);
@@ -95,7 +120,7 @@ export function parseSqlForCompletion(text: string, offset: number, driver?: str
     }
     if (replacement) {
       parts.push(text.slice(start, token.start), replacement);
-      start = token.start + token.text.length;
+      start = replacementEnd;
     }
   }
   parts.push(text.slice(start));
