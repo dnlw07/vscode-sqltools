@@ -43,6 +43,27 @@ describe('PostgreSQL empty query results', () => {
     });
   }
 
+  it('hides trigger NEW/EXISTING JSON notices but keeps other notices', async () => {
+    const driver = setup();
+    const client: any = await mockConnect();
+    const notices: Record<string, (notice: any) => void> = {};
+    client.on.mockImplementation((event: string, handler: any) => { notices[event] = handler; });
+    client.query.mockImplementation(async () => {
+      notices.notice({ name: 'notice', message: 'NEW JSON {"a": 1}' });
+      notices.notice({ name: 'notice', message: 'EXISTING JSON {"a": null}' });
+      notices.notice({ name: 'notice', message: 'NEW JSON' });
+      notices.notice({ name: 'notice', message: 'something else' });
+      return { rows: [], fields: [], command: 'UPDATE', rowCount: 1 };
+    });
+
+    const [result] = await driver.query('UPDATE t SET a = 1', { __internal: true } as any);
+
+    const messages = result.messages.map((m: any) => m.message);
+    expect(messages.some((m: string) => /JSON/.test(m))).toBe(false);
+    expect(messages).toContain('NOTICE: something else');
+    expect(messages.length).toBeGreaterThan(1);
+  });
+
   it('retains populated result mapping', async () => {
     const options = { __internal: true };
     const [result] = await setup([[1, 'Test']]).query('SELECT * FROM employees', options);

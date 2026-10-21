@@ -43,7 +43,15 @@ class Connection {
         if (!DriverClass) {
             throw new driver_not_installed_1.default(credentials.driver);
         }
-        this.conn = new DriverClass(this.credentials, getWorkspaceFolders);
+        const driver = new DriverClass(this.credentials, getWorkspaceFolders);
+        this.conn = new Proxy(driver, {
+            get: (target, property) => {
+                const value = Reflect.get(target, property, target);
+                if (typeof value !== 'function')
+                    return value;
+                return (...args) => (0, src_1.withConnectionName)(this.credentials.name, () => value.apply(target, args));
+            },
+        });
         Connection.loadCompletionSnapshots();
         this.fallbackCompletionCache = Connection.completionSnapshots.get(this.getCompletionCacheId());
     }
@@ -116,7 +124,7 @@ class Connection {
         return [records];
     }
     query(query, opt = {}) {
-        return this.conn.query(query, opt)
+        return (0, src_1.withConnectionName)(this.getName(), () => this.conn.query(query, opt)
             .catch(this.decorateException)
             .catch((e) => {
             log.error('%O', e);
@@ -142,7 +150,7 @@ class Connection {
                     query,
                     results: [],
                 }];
-        });
+        }));
     }
     getName() {
         return this.conn.credentials.name;

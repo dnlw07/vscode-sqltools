@@ -13,6 +13,16 @@ interface WildcardLocation {
   tables?: { identifierChain: { name?: string }[] }[];
 }
 
+// The parser drops the table name for `project`.dataset.table, so re-read the reference from the FROM clause.
+function completeBigQueryTableChain(afterStar: string, identifiers: string[]): string[] {
+  const reference = afterStar.match(/\bfrom\s+((?:`[^`]+`|[\w-]+)(?:\s*\.\s*(?:`[^`]+`|[\w-]+))*)/i)?.[1];
+  if (!reference) return identifiers;
+  const parts = (reference.match(/`[^`]+`|[\w-]+/g) || [])
+    .flatMap(part => part.startsWith('`') ? part.slice(1, -1).split('.') : [part]);
+  const matchesPrefix = identifiers.every((name, index) => name && parts[index]?.toUpperCase() === name.toUpperCase());
+  return parts.length > identifiers.length && parts.length <= 3 && matchesPrefix ? parts : identifiers;
+}
+
 export async function getWildcardCompletion(
   document: TextDocument,
   currentOffset: number,
@@ -36,6 +46,9 @@ export async function getWildcardCompletion(
   if (/^bigquery(?: driver for sqltools)?$/i.test(conn.getDriver?.() || '')
     && identifiers.length === 1 && identifiers[0]?.includes('.')) {
     identifiers = identifiers[0].split('.');
+  }
+  if (/^bigquery(?: driver for sqltools)?$/i.test(conn.getDriver?.() || '')) {
+    identifiers = completeBigQueryTableChain(text.slice(starOffset + 1), identifiers);
   }
   if (identifiers.some(identifier => !identifier) || identifiers.length > 3) return;
 

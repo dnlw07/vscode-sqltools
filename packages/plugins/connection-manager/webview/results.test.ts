@@ -60,6 +60,33 @@ describe('results webview placement', () => {
     expect(view.viewColumn).toBe(2);
   });
 
+  it('waits for a slow results webview instead of failing after 2.5 seconds', async () => {
+    Object.assign(Config.results, { location: 'next' });
+    const manager = new ResultsWebviewManager();
+    const view = manager.get('slow-webview');
+    const pending = view.show();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(3000);
+    Reflect.get(view, 'messagesHandler')({ action: UIAction.NOTIFY_VIEW_READY, payload: true });
+
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it('reports a webview startup failure with actionable guidance after 15 seconds', async () => {
+    Object.assign(Config.results, { location: 'next' });
+    const manager = new ResultsWebviewManager();
+    const view = manager.get('webview-timeout');
+    const pending = view.show();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    jest.advanceTimersByTime(15000);
+
+    await expect(pending).rejects.toThrow('Check the Webview Developer Tools Console');
+  });
+
   it('never reuses a pinned tab for the same connection', () => {
     const manager = new ResultsWebviewManager();
     expect(manager.getReusableId('conn')).toBe('conn');

@@ -186,3 +186,43 @@ describe('Db2 completion parser compatibility', () => {
     expect(parse(query)).toEqual(sqlAutocompleteParser.parseSql(query.slice(0, offset), ''));
   });
 });
+
+describe('BigQuery completion parser compatibility', () => {
+  it.each([
+    ['select | from `my-project-1`.demo.orders;', ['my-project-1', 'demo', 'orders']],
+    ['select | from `my-project-1.demo.orders`;', ['my-project-1', 'demo', 'orders']],
+  ])('keeps the table of a project-qualified reference: %s', (query, chain) => {
+    const offset = query.indexOf('|');
+    const ast: any = parseSqlForCompletion(query.replace('|', ''), offset, 'BigQuery');
+    expect(ast.suggestColumns.tables[0].identifierChain.map(id => id.name)).toEqual(chain);
+  });
+
+  it('keeps the asterisk location of a project-qualified reference', () => {
+    const query = 'select * from `my-project-1`.demo.orders;';
+    const ast: any = parseSqlForCompletion(query, 8, 'BigQuery');
+    const star = ast.locations.find(l => l.type === 'asterisk');
+    expect(star.tables[0].identifierChain.map(id => id.name)).toEqual(['my-project-1', 'demo', 'orders']);
+  });
+});
+
+describe('statements following a project-qualified BigQuery reference', () => {
+  it.each(['Oracle', 'PostgreSQL', 'DB2', 'BigQuery'])('%s keeps later asterisks intact', driver => {
+    const query = 'select * from `my-project-1`.demo.orders;\nselect * from employees;';
+    const ast: any = parseSqlForCompletion(query, query.lastIndexOf('*') + 1, driver);
+    const stars = ast.locations.filter(l => l.type === 'asterisk');
+    expect(stars.map(s => s.location.first_line)).toEqual([2]);
+    expect(stars[0].tables.map(t => t.identifierChain.map(id => id.name))).toEqual([['employees']]);
+  });
+});
+
+describe('incomplete statements do not leak into the current one', () => {
+  const text = 'SELECT * FROM employee_demo where ;\nSELECT *,  FROM qdr00687.employees WHERE ;\n';
+  it.each(['DB2', 'PostgreSQL'])('%s: %s', driver => {
+    const star = text.indexOf('*,') + 1;
+    const ast: any = parseSqlForCompletion(text, star, driver);
+    const asterisks = ast.locations.filter(l => l.type === 'asterisk' && l.location.first_line === 2);
+    expect(asterisks[0].tables.map(t => t.identifierChain.map(id => id.name).join('.'))).toEqual(['qdr00687.employees']);
+    const where: any = parseSqlForCompletion(text, text.lastIndexOf('WHERE ') + 6, driver);
+    expect(where.suggestColumns.tables.map(t => t.identifierChain.map(id => id.name).join('.'))).toEqual(['qdr00687.employees']);
+  });
+});

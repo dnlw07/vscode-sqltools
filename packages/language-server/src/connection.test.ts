@@ -2,10 +2,14 @@ import Connection from './connection';
 import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import LSContext from './context';
 import { ContextValue, NSDatabase } from '@sqltools/types';
+import { withConnectionName } from '@sqltools/log/src';
 import fs from 'fs';
 
 jest.mock('./context', () => ({ __esModule: true, default: { drivers: new Map() } }));
-jest.mock('@sqltools/log/src', () => ({ createLogger: () => ({ error: jest.fn() }) }));
+jest.mock('@sqltools/log/src', () => ({
+  createLogger: () => ({ error: jest.fn() }),
+  withConnectionName: jest.fn((_name: string, callback: () => unknown) => callback()),
+}));
 jest.mock('@sqltools/util/config-manager', () => ({ __esModule: true, default: {} }));
 jest.mock('@sqltools/util/path', () => ({
   getDataPath: () => require('path').join(require('os').tmpdir(), `sqltools-autosuggestions-test-${process.pid}.json`),
@@ -26,6 +30,7 @@ describe('connection completion cache', () => {
     driver = {
       credentials: {},
       searchItems: jest.fn(async () => [{ label: 'TABLES' }]),
+      describeTable: jest.fn(async () => []),
       getStaticCompletions: jest.fn(async () => ({ COUNT: { label: 'COUNT' } })),
       testConnection: jest.fn(async () => undefined),
       close: jest.fn(async () => undefined),
@@ -33,11 +38,17 @@ describe('connection completion cache', () => {
     LSContext.drivers.set('cache-test', class {
       constructor() { return driver; }
     } as any);
-    connection = new Connection({ id: `cache-test-${++connectionId}`, driver: 'cache-test' } as any, jest.fn());
+    connection = new Connection({ id: `cache-test-${++connectionId}`, name: 'cache-test-connection', driver: 'cache-test' } as any, jest.fn());
   });
 
   afterAll(() => {
     if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+  });
+
+  it('runs driver calls in the connection log context', async () => {
+    await connection.describeTable({ label: 'TABLES' } as any, { requestId: 'test' } as any);
+
+    expect(withConnectionName).toHaveBeenCalledWith('cache-test-connection', expect.any(Function));
   });
 
   describe('table DDL driver delegation', () => {

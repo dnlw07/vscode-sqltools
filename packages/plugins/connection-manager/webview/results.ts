@@ -13,19 +13,28 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
   protected id: string = 'Results';
   protected title: string = `${DISPLAY_NAME} Results`;
   protected isOpen = false;
+  private readinessWaiters = new Set<(error?: Error) => void>();
 
   constructor(public requestId: string, private group: ResultGroup) {
     super();
 
     this.onDidDispose(() => {
       this.isOpen = false;
+      this.resolveReadiness(new Error('SQLTools results webview was closed before it became ready.'));
     });
+  }
+
+  private resolveReadiness(error?: Error) {
+    const waiters = [...this.readinessWaiters];
+    this.readinessWaiters.clear();
+    waiters.forEach(resolve => resolve(error));
   }
 
   protected messagesHandler = ({ action, payload }) => {
     switch (action) {
       case UIAction.NOTIFY_VIEW_READY:
         this.isOpen = payload;
+        if (this.isOpen) this.resolveReadiness();
         return;
     }
   };
@@ -67,19 +76,21 @@ class ResultsWebview extends WebviewProvider<ResultsScreenState> {
       super.show();
     }
 
+    if (this.isOpen) return;
     return new Promise<void>((resolve, reject) => {
-      let count = 0;
-      let interval = setInterval(() => {
-        if (this.isOpen) {
-          clearInterval(interval);
-          return resolve();
-        }
-        count++;
-        if (count >= 5) {
-          clearInterval(interval);
-          return reject(new Error('Can\'t open results screen'));
-        }
-      }, 500);
+      const finish = (error?: Error) => {
+        clearTimeout(timeout);
+        this.readinessWaiters.delete(finish);
+        if (error) reject(error);
+        else resolve();
+      };
+      const timeout = setTimeout(() => {
+        finish(new Error(
+          'SQLTools results webview did not become ready within 15 seconds. Check the Webview Developer Tools Console for startup errors.'
+        ));
+      }, 15000);
+      this.readinessWaiters.add(finish);
+      if (this.isOpen) finish();
     });
   }
 

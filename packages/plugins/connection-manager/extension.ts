@@ -5,7 +5,7 @@ import { ContextValue, IConnection, IExtension, IExtensionPlugin, ILanguageClien
 import Config from '@sqltools/util/config-manager';
 import { getConnectionDescription, getConnectionId, getSessionBasename, migrateConnectionSettings } from '@sqltools/util/connection';
 import { EXT_CONFIG_NAMESPACE, EXT_NAMESPACE } from '@sqltools/util/constants';
-import { default as logger, createLogger } from '@sqltools/log/src';
+import { default as logger, createLogger, formatConnectionMessage } from '@sqltools/log/src';
 import { getDataPath, SESSION_FILES_DIRNAME } from '@sqltools/util/path';
 import { extractConnName, getQueryParameters, extractCommentVariables } from '@sqltools/util/query';
 import { getQueryBlockAtOffset, getQueryBlockConnectionName, parseQueryBlocks, QueryBlock } from '@sqltools/util/query/blocks';
@@ -136,7 +136,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       const conn = await this.explorer.getActive()
       const view = await this._openResultsWebview(conn && conn.id, opt.requestId);
       const payload = await this._runConnectionCommandWithArgs('showRecords', table, { ...opt, requestId: view.requestId });
-      this.updateViewResults(view, payload);
+      this.updateViewResults(view, payload, conn?.name);
     } catch (e) {
       this.errorHandler('Error while showing table records', e);
     }
@@ -148,7 +148,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       const conn = await this.explorer.getActive()
       const view = await this._openResultsWebview(conn && conn.id, undefined);
       const payload = await this._runConnectionCommandWithArgs('describeTable', table, { requestId: view.requestId });
-      this.updateViewResults(view, payload);
+      this.updateViewResults(view, payload, conn?.name);
     } catch (e) {
       this.errorHandler('Error while describing table records', e);
     }
@@ -210,13 +210,17 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     }
   }
 
-  private updateViewResults = (view: ResultsWebviewManager['viewsMap'][string], results: NSDatabase.IResult[]) => {
+  private updateViewResults = (view: ResultsWebviewManager['viewsMap'][string], results: NSDatabase.IResult[], connectionName?: string) => {
     view.updateResults(results);
     if (results.length > 0) {
       // Flatten messages from ALL result entries, not just results[0].
       // Previously only the first statement's messages reached the Console
       // panel, so SET/CALL/DELETE with no result set produced no feedback.
-      const allMessages = results.flatMap(r => r.messages ?? []);
+      const allMessages = results.flatMap(r => r.messages ?? []).map((m: any) =>
+        typeof m === 'string'
+          ? formatConnectionMessage(m, connectionName)
+          : { ...m, message: formatConnectionMessage(m.message, connectionName) }
+      );
       this.syncConsoleMessages(allMessages);
     }
   };
@@ -343,6 +347,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   }
 
   private ext_executeQuery = async (query?: string, { connNameOrId, connId, ...opt }: IQueryOptions = {}) => {
+    let openingResultsScreen = false;
     try {
       const queryWasProvided = typeof query === 'string';
       const editor = window.activeTextEditor;
@@ -383,7 +388,9 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
 
       const hasConcurrentQuery = this.queryExecutionTracker.start(connectionId);
       try {
+        openingResultsScreen = true;
         const view = await this._openResultsWebview(connectionId, opt.requestId, hasConcurrentQuery);
+        openingResultsScreen = false;
         const payload = await this.client.sendRequest(RunCommandRequest, {
           conn,
           command: 'query',
@@ -397,13 +404,13 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
         if (estimateNotification) {
           window.showInformationMessage(estimateNotification);
         }
-        this.updateViewResults(view, payload);
+        this.updateViewResults(view, payload, conn?.name);
         return payload;
       } finally {
         this.queryExecutionTracker.finish(connectionId);
       }
     } catch (e) {
-      this.errorHandler('Error fetching records.', e);
+      this.errorHandler(openingResultsScreen ? 'Error opening results screen.' : 'Error fetching records.', e);
     }
   }
 
@@ -801,9 +808,11 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     this.explorer.clearConsoleMessages();
   }
 
-  private ext_addConsoleMessage = async (message?: string) => {
+  private ext_addConsoleMessage = async (message?: string, connectionName?: string) => {
     if (!message) return;
-    this.syncConsoleMessages([{ date: new Date(), message }]);
+    const formatted = formatConnectionMessage(message, connectionName);
+    this.syncConsoleMessages([{ date: new Date(), message: formatted }]);
+    return formatted;
   }
 
   private ext_copyTextFromTreeItem = async () => {

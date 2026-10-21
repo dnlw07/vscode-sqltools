@@ -232,7 +232,11 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
     return this.open()
       .then(async (pool) => {
         cli = await pool.connect();
-        cli.on('notice', notice => messages.push(this.prepareMessage(`${notice.name.toUpperCase()}: ${notice.message}`)));
+        cli.on('notice', notice => {
+          // Trigger debug output (RAISE NOTICE 'NEW JSON ...' / 'EXISTING JSON ...') is noise in the console.
+          if (/^\s*(?:NEW|EXISTING) JSON\b/i.test(notice.message || '')) return;
+          messages.push(this.prepareMessage(`${notice.name.toUpperCase()}: ${notice.message}`));
+        });
 
         if (canPaginate) {
           const paginated = await this.execPaginatedSelect(cli, queries[0], opt);

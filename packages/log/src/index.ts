@@ -1,4 +1,4 @@
-import factory from './lib/factory';
+import factory, { formatConnectionMessage, withConnectionName } from './lib/factory';
 /**
  * Export logger based on environment.
  *
@@ -29,4 +29,5 @@ export function createLogger(ns?: string, bindings: { [k: string]: any } = {}) {
   if (!ns) return logger;
   return logger.child({ ...bindings, ns });
 }
+export { formatConnectionMessage, withConnectionName };
 export default logger;

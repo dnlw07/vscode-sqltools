@@ -148,10 +148,15 @@ class SQLToolsLanguageServer {
     onRequest = (req, handler) => {
         if (!handler)
             throw new exception_1.InvalidActionError('Disabled registration for * handlers');
-        return this._server.onRequest(req, async (...args) => {
-            process.env.NODE_ENV === 'development' && log.info('REQUEST RECEIVED => %s %o', req._method || req.toString(), args);
-            process.env.NODE_ENV !== 'development' && log.info('REQUEST RECEIVED => %s', req._method || req.toString());
-            return Promise.resolve(handler(...args));
+        return this._server.onRequest(req, (...args) => {
+            const params = args[0];
+            const connectionName = params && typeof params === 'object' && typeof params.connectionName === 'string'
+                ? params.connectionName : undefined;
+            return (0, src_1.withConnectionName)(connectionName, () => {
+                process.env.NODE_ENV === 'development' && log.info('REQUEST RECEIVED => %s %o', req._method || req.toString(), args);
+                process.env.NODE_ENV !== 'development' && log.info('REQUEST RECEIVED => %s', req._method || req.toString());
+                return Promise.resolve(handler(...args));
+            });
         });
     };
     get sendRequest() {

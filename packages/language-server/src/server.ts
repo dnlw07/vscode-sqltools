@@ -9,7 +9,7 @@ import LSContext from './context';
 import { ExitCalledNotification, ServerErrorNotification } from './notifications';
 import { resolve as pathResolve } from 'path';
 import { spawnSync } from 'child_process';
-import { createLogger } from '@sqltools/log/src';
+import { createLogger, withConnectionName } from '@sqltools/log/src';
 
 const log = createLogger();
 
@@ -160,10 +160,15 @@ class SQLToolsLanguageServer implements ILanguageServer {
   }
   public onRequest: IConnection['onRequest'] = (req, handler?: any) => {
     if (!handler) throw new InvalidActionError('Disabled registration for * handlers');
-    return this._server.onRequest(req, async (...args) => {
-      process.env.NODE_ENV === 'development' && log.info('REQUEST RECEIVED => %s %o', req._method || req.toString(), args);
-      process.env.NODE_ENV !== 'development' && log.info('REQUEST RECEIVED => %s', req._method || req.toString());
-      return Promise.resolve(handler(...args));
+    return this._server.onRequest(req, (...args: any[]) => {
+      const params = args[0];
+      const connectionName = params && typeof params === 'object' && typeof params.connectionName === 'string'
+        ? params.connectionName : undefined;
+      return withConnectionName(connectionName, () => {
+        process.env.NODE_ENV === 'development' && log.info('REQUEST RECEIVED => %s %o', req._method || req.toString(), args);
+        process.env.NODE_ENV !== 'development' && log.info('REQUEST RECEIVED => %s', req._method || req.toString());
+        return Promise.resolve(handler(...args));
+      });
     });
   }
 

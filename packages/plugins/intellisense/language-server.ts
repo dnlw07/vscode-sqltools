@@ -4,12 +4,14 @@ import { getDocumentCurrentQuery } from './query';
 import connectionStateCache, { LAST_USED_ID_KEY, ACTIVE_CONNECTIONS_KEY } from '../connection-manager/cache/connections-state.model';
 import Connection from '@sqltools/language-server/src/connection';
 import { TableCompletionItem, TableColumnCompletionItem, DatabaseCompletionItem } from './models';
-import { createLogger } from '@sqltools/log/src';
+import { createLogger, withConnectionName } from '@sqltools/log/src';
 import { parseSqlForCompletion } from './sql-completion-parser';
 import { COMPLETION_LOOKAHEAD, createCompletionList } from './completion-list';
 import { getWildcardCompletion } from './wildcard-completion';
 
 const log = createLogger('intellisense');
+
+const isBigQueryDriver = (driver?: string) => /^bigquery(?: driver for sqltools)?$/i.test(driver || '');
 
 export default class IntellisensePlugin<T extends ILanguageServer> implements ILanguageServerPlugin<T> {
   private server: T;
@@ -20,7 +22,6 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       connectionStateCache.get(LAST_USED_ID_KEY) as Promise<string>,
     ])
     const { textDocument, position } = params;
-    log.info('completion requested %O', position);
     const doc = this.server.docManager.get(textDocument.uri);
 
     const { text, currentOffset } = getDocumentCurrentQuery(doc, position);
@@ -50,7 +51,8 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
       currentWord,
       conn,
       text,
-      currentOffset
+      currentOffset,
+      position,
     }
   }
 
@@ -95,7 +97,15 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
   private getColumnCompletions = async ({ currentWord, conn, suggestColumns }: { conn: Connection; currentWord: string; suggestColumns: any }): Promise<CompletionItem[]> => {
     const tables = suggestColumns.tables
       .map(table => table.identifierChain.map(id => id.name || id.cte))
-      .map((t: [string]) => (<NSDatabase.ITable>{ label: t.pop(), database: t.pop() }));
+      .map((t: string[]) => {
+        const label = t.pop();
+        const second = t.pop();
+        const third = t.pop();
+        // A BigQuery project.dataset.table reference needs the project kept as the database.
+        return <NSDatabase.ITable>(third && isBigQueryDriver(conn.getDriver?.())
+          ? { label, schema: second, database: third }
+          : { label, database: second });
+      });
     const columns = await conn.searchItems(ContextValue.COLUMN, currentWord, {
       tables
     }, COMPLETION_LOOKAHEAD) as [NSDatabase.IColumn];
@@ -184,42 +194,50 @@ export default class IntellisensePlugin<T extends ILanguageServer> implements IL
         currentWord,
         conn,
         text,
-        currentOffset
+        currentOffset,
+        position,
       } = await this.getQueryData(params);
 
-      // When no active connection attatched to the file - return only SQL keywords
-      if (!conn) {
-        const hueAst = this.getHueAst(text, currentOffset);
-        const keywordCompletions = this.getKeywordsCompletion(hueAst, currentWord);
+      return await withConnectionName(conn?.getName?.(), async () => {
+        log.info('completion requested %O', position);
+        try {
+          // When no active connection is attached to the file, return only SQL keywords.
+          if (!conn) {
+            const hueAst = this.getHueAst(text, currentOffset);
+            const keywordCompletions = this.getKeywordsCompletion(hueAst, currentWord);
 
-        log.info('no active connection, keyword completions:: %d', keywordCompletions.length);
-        return keywordCompletions;
-      };
+            log.info('no active connection, keyword completions:: %d', keywordCompletions.length);
+            return keywordCompletions;
+          };
 
-      const wildcardCompletion = await getWildcardCompletion(
-        this.server.docManager.get(params.textDocument.uri), currentOffset, conn
-      );
-      if (wildcardCompletion) {
-        return createCompletionList([wildcardCompletion]);
-      }
+          const wildcardCompletion = await getWildcardCompletion(
+            this.server.docManager.get(params.textDocument.uri), currentOffset, conn
+          );
+          if (wildcardCompletion) {
+            return createCompletionList([wildcardCompletion]);
+          }
 
-      // First try connection's getCompletionsForRawQuery method if the connection supports it
-      const connectionCompletions = await conn.getCompletionsForRawQuery(text, currentOffset);
-      if (connectionCompletions !== null) {
-        if (Array.isArray(connectionCompletions)) {
-          log.info('Got completions from the raw query, count: %d', connectionCompletions.length);
-          return createCompletionList(connectionCompletions);
+          // First try connection's getCompletionsForRawQuery method if the connection supports it.
+          const connectionCompletions = await conn.getCompletionsForRawQuery(text, currentOffset);
+          if (connectionCompletions !== null) {
+            if (Array.isArray(connectionCompletions)) {
+              log.info('Got completions from the raw query, count: %d', connectionCompletions.length);
+              return createCompletionList(connectionCompletions);
+            }
+            const limited = createCompletionList(connectionCompletions.items);
+            limited.isIncomplete = limited.isIncomplete || connectionCompletions.isIncomplete;
+            return limited;
+          }
+
+          log.info('Using completions based on hue SQL parser');
+          const completions = await this.getCompletionsFromHueAst({ currentWord, conn, text, currentOffset });
+          log.info('total completions %d (incomplete: %s)', completions.items.length, completions.isIncomplete);
+          return completions;
+        } catch (error) {
+          log.error('got an error:\n %O', error);
+          return [];
         }
-        const limited = createCompletionList(connectionCompletions.items);
-        limited.isIncomplete = limited.isIncomplete || connectionCompletions.isIncomplete;
-        return limited;
-      }
-
-      // Fallback to hue AST-based completions
-      log.info('Using completions based on hue SQL parser');
-      const completions = await this.getCompletionsFromHueAst({ currentWord, conn, text, currentOffset });
-      log.info('total completions %d (incomplete: %s)', completions.items.length, completions.isIncomplete);
-      return completions;
+      });
     } catch (error) {
       log.error('got an error:\n %O', error);
       return [];

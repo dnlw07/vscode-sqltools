@@ -7,6 +7,46 @@ order: 10
 
 ## v0.28
 
+### v0.28.77 - (Oct 21, 2026)
+
+- Autocomplete and `Expand * to all columns` now parse only the statement under the cursor, so an incomplete earlier statement (e.g. `WHERE ;`) no longer breaks the following ones.
+
+### v0.28.76 - (Oct 21, 2026)
+
+- Fix `Expand * to all columns` and autocomplete for other statements/connections in a file containing a `` `project`.dataset.table `` reference.
+
+### v0.28.75 - (Oct 21, 2026)
+
+- BigQuery: column autocomplete for `` `project`.dataset.table `` references (the table name was dropped and the project lost).
+
+### v0.28.74 - (Oct 21, 2026)
+
+- BigQuery: `Expand * to all columns` now works for `` `project`.dataset.table `` references.
+
+### v0.28.73 - (Oct 21, 2026)
+
+- Prefix every SQL Console message produced by query results (e.g. "rows shown") with the connection name.
+
+### v0.28.72 - (Oct 21, 2026)
+
+- Fix the Results webview never becoming ready: the connection-aware logger referenced the Node-only `global` object at load time, which does not exist in webviews.
+
+### v0.28.71 - (Oct 21, 2026)
+
+- Avoid loading Node's `async_hooks` in the browser-based Results webview, which prevented it from starting and reporting readiness.
+
+### v0.28.70 - (Oct 21, 2026)
+
+- Wait up to 15 seconds for the results webview to become ready and report actionable startup guidance instead of a misleading record-fetch error when it fails to load.
+
+### v0.28.69 - (Oct 21, 2026)
+
+- Add the shared connection-name prefix to messages sent to the SQLTools Console, including estimates from external drivers.
+
+### v0.28.68 - (Oct 21, 2026)
+
+- Prefix SQLTools log messages with the active connection name, such as `[Oracle_dev]`, when the log originates from a connection-scoped operation.
+
 ### v0.28.67 - (Oct 21, 2026)
 
 - Preserve PostgreSQL column autocomplete after `ILIKE` and `ILIKE ANY(...)` predicates by normalizing only the parser input.

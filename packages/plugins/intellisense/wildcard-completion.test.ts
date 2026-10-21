@@ -119,6 +119,21 @@ describe('wildcard column expansion', () => {
     });
   });
 
+  it('expands BigQuery tables with a separately quoted project', async () => {
+    const { document, offset, conn } = setup('SELECT *| FROM `my-project-1525987663000`.demo.orders;');
+    conn.getDriver.mockReturnValue('BigQuery');
+    conn.searchItems.mockResolvedValue([{
+      ...table, label: 'orders', schema: 'demo', database: 'my-project-1525987663000',
+    }]);
+
+    const item = await getWildcardCompletion(document, offset, conn);
+
+    expect(item.textEdit.newText).toBe('EMPLOYEE_ID, FIRST_NAME');
+    expect(conn.searchItems).toHaveBeenCalledWith(ContextValue.TABLE, 'orders', {
+      database: 'demo', catalog: 'my-project-1525987663000', limit: 2147483647,
+    });
+  });
+
   it('retains a quoted qualifier on every column', async () => {
     const { document, offset, conn } = setup('SELECT `e`.*| FROM qdr00687.employees `e`;');
     const item = await getWildcardCompletion(document, offset, conn);

@@ -6,7 +6,7 @@ import generateId from '@sqltools/util/internal-id';
 import LSContext from './context';
 import { IConnection as LSIconnection, CompletionItem } from 'vscode-languageserver';
 import DriverNotInstalledError from './exception/driver-not-installed';
-import { createLogger } from '@sqltools/log/src';
+import { createLogger, withConnectionName } from '@sqltools/log/src';
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
@@ -43,7 +43,14 @@ export default class Connection {
       throw new DriverNotInstalledError(credentials.driver);
     }
 
-    this.conn = new DriverClass(this.credentials, getWorkspaceFolders);
+    const driver = new DriverClass(this.credentials, getWorkspaceFolders);
+    this.conn = new Proxy(driver, {
+      get: (target, property) => {
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== 'function') return value;
+        return (...args: any[]) => withConnectionName(this.credentials.name, () => value.apply(target, args));
+      },
+    });
     Connection.loadCompletionSnapshots();
     this.fallbackCompletionCache = Connection.completionSnapshots.get(this.getCompletionCacheId());
   }
@@ -127,30 +134,30 @@ export default class Connection {
   }
 
   public query(query: string, opt: IQueryOptions & { throwIfError?: boolean } = {}): Promise<NSDatabase.IResult[]> {
-    return this.conn.query(query, opt)
-      .catch(this.decorateException)
-      .catch((e) => {
-        log.error('%O', e);
-        if (opt.throwIfError) throw e;
-        let message = '';
-        if (typeof e === 'string') {
-          message = e;
-        } else if (e.message) {
-          message = e.message;
-        } else {
-          message = JSON.stringify(e);
-        }
-        return [{
-          requestId: opt.requestId ?? generateId(),
-          resultId: generateId(),
-          connId: this.getId(),
-          cols: [],
-          error: true,
-          messages: [{ message, date: new Date() }],
-          query,
-          results: [],
-        }];
-      });
+    return withConnectionName(this.getName(), () => this.conn.query(query, opt)
+        .catch(this.decorateException)
+        .catch((e) => {
+          log.error('%O', e);
+          if (opt.throwIfError) throw e;
+          let message = '';
+          if (typeof e === 'string') {
+            message = e;
+          } else if (e.message) {
+            message = e.message;
+          } else {
+            message = JSON.stringify(e);
+          }
+          return [{
+            requestId: opt.requestId ?? generateId(),
+            resultId: generateId(),
+            connId: this.getId(),
+            cols: [],
+            error: true,
+            messages: [{ message, date: new Date() }],
+            query,
+            results: [],
+          }];
+        }));
   }
   public getName() {
     return this.conn.credentials.name;
