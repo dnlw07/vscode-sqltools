@@ -32,7 +32,11 @@ export async function getWildcardCompletion(
     }) === starOffset);
   // Multi-table stars and derived relations need more than catalog columns to preserve their semantics.
   if (!wildcard || !wildcard.tables || wildcard.tables.length !== 1) return;
-  const identifiers = wildcard.tables[0].identifierChain.map(identifier => identifier.name);
+  let identifiers = wildcard.tables[0].identifierChain.map(identifier => identifier.name);
+  if (/^bigquery(?: driver for sqltools)?$/i.test(conn.getDriver?.() || '')
+    && identifiers.length === 1 && identifiers[0]?.includes('.')) {
+    identifiers = identifiers[0].split('.');
+  }
   if (identifiers.some(identifier => !identifier) || identifiers.length > 3) return;
 
   const beforeStar = text.slice(0, starOffset);
@@ -45,6 +49,7 @@ export async function getWildcardCompletion(
   // Use explorer metadata: completion column searches are usually capped by the driver.
   const matches = await conn.searchItems(ContextValue.TABLE, label, {
     database: schema,
+    ...(catalog ? { catalog } : {}),
     limit: 2147483647,
   });
   const tables = matches.filter(item => (item.type === ContextValue.TABLE || item.type === ContextValue.VIEW)

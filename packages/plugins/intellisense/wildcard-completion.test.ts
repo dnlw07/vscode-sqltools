@@ -17,6 +17,7 @@ function setup(query: string, labels = ['EMPLOYEE_ID', 'FIRST_NAME']) {
   const document = TextDocument.create('file:///query.sql', 'sql', 1, query.replace('|', ''));
   const conn = {
     searchItems: jest.fn().mockResolvedValue([table]),
+    getDriver: jest.fn(),
     getChildrenForItem: jest.fn()
       .mockResolvedValueOnce([group])
       .mockResolvedValueOnce(labels.map(column)),
@@ -100,6 +101,21 @@ describe('wildcard column expansion', () => {
     expect(item.textEdit.newText).toBe('e.EMPLOYEE_ID, e.FIRST_NAME');
     expect(conn.searchItems).toHaveBeenCalledWith(ContextValue.TABLE, 'employees', {
       database: 'qdr00687', limit: 2147483647,
+    });
+  });
+
+  it('passes a project qualifier for fully qualified BigQuery tables', async () => {
+    const { document, offset, conn } = setup('SELECT *| FROM `project-a.hr.employees`;');
+    conn.getDriver.mockReturnValue('BigQuery');
+    conn.searchItems.mockResolvedValue([{
+      ...table, schema: 'hr', database: 'project-a',
+    }]);
+
+    const item = await getWildcardCompletion(document, offset, conn);
+
+    expect(item.textEdit.newText).toBe('EMPLOYEE_ID, FIRST_NAME');
+    expect(conn.searchItems).toHaveBeenCalledWith(ContextValue.TABLE, 'employees', {
+      database: 'hr', catalog: 'project-a', limit: 2147483647,
     });
   });
 
