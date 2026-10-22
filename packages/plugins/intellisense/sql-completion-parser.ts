@@ -71,24 +71,33 @@ function splitDottedIdentifiers(value: any): void {
 
 // Hue doesn't end an incomplete statement (e.g. `WHERE ;`) at its semicolon, so statements would bleed into the one
 // being completed. Blanking the others keeps offsets and line numbers while isolating the current statement.
-function isolateCurrentStatement(text: string, offset: number): string {
+// Hue fails on a long run of leading whitespace (around 15k characters), so the blanked text keeps only line breaks
+// plus the column of the statement start; the returned offset is shifted by the removed characters.
+function isolateCurrentStatement(text: string, offset: number): { text: string; offset: number } {
   const semicolons = tokens(text).filter(token => token.text === ';').map(token => token.start);
-  if (!semicolons.length) return text;
+  if (!semicolons.length) return { text, offset };
   const previous = semicolons.filter(position => position < offset).pop();
   const next = semicolons.find(position => position >= offset);
   const start = previous === undefined ? 0 : previous + 1;
   const end = next === undefined ? text.length : next + 1;
-  const blank = (value: string) => value.replace(/[^\r\n]/g, ' ');
-  return blank(text.slice(0, start)) + text.slice(start, end) + blank(text.slice(end));
+  const lineBreaks = (value: string) => value.replace(/[^\r\n]/g, '');
+  const prefix = text.slice(0, start);
+  const column = prefix.length - Math.max(prefix.lastIndexOf('\n'), prefix.lastIndexOf('\r')) - 1;
+  const blankedPrefix = lineBreaks(prefix) + ' '.repeat(column);
+  return {
+    text: blankedPrefix + text.slice(start, end) + lineBreaks(text.slice(end)),
+    offset: offset - (start - blankedPrefix.length),
+  };
 }
 
 // Hue drops the table of `project`.dataset.table and then mis-parses the following statements of the
 // whole document, whatever the active driver is. Moving the closing backtick keeps offsets intact.
 export function parseSqlForCompletion(text: string, offset: number, driver?: string) {
-  const parserText = isolateCurrentStatement(text.replace(BIGQUERY_QUALIFIER,
+  const isolated = isolateCurrentStatement(text.replace(BIGQUERY_QUALIFIER,
     (_match, project, dataset, table) => `\`${project}.${dataset}${table ? `.${table}` : ''}\``), offset);
-  const ast = parseNormalizedSql(parserText, offset, driver);
-  if (parserText !== text || /^bigquery(?: driver for sqltools)?$/i.test(driver || '')) splitDottedIdentifiers(ast);
+  const parserText = isolated.text;
+  const ast = parseNormalizedSql(parserText, isolated.offset, driver);
+  if (parserText !== text ||  /^bigquery(?: driver for sqltools)?$/i.test(driver || '')) splitDottedIdentifiers(ast);
   return ast;
 }
 

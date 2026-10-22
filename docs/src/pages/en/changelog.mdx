@@ -7,6 +7,10 @@ order: 10
 
 ## v0.28
 
+### v0.28.78 - (Oct 23, 2026)
+
+- Autocomplete no longer stops working in long scripts (around 15k+ characters before the cursor): the other statements are now collapsed to line breaks instead of long runs of spaces, which the parser could not handle.
+
 ### v0.28.77 - (Oct 21, 2026)
 
 - Autocomplete and `Expand * to all columns` now parse only the statement under the cursor, so an incomplete earlier statement (e.g. `WHERE ;`) no longer breaks the following ones.

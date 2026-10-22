@@ -226,3 +226,18 @@ describe('incomplete statements do not leak into the current one', () => {
     expect(where.suggestColumns.tables.map(t => t.identifierChain.map(id => id.name).join('.'))).toEqual(['qdr00687.employees']);
   });
 });
+
+describe('long scripts', () => {
+  it.each(['DB2', 'PostgreSQL', 'BigQuery'])('%s: completion still works after about 30k characters of other statements', driver => {
+    const filler = "INSERT INTO s.t (a, b) VALUES ('" + 'x'.repeat(2000) + "', 1);\n";
+    const prefix = filler.repeat(15);
+    const text = prefix + 'SELECT * FROM s.employees WHERE ;\nSELECT 1;\n';
+    const offset = text.indexOf('WHERE ') + 6;
+    const ast: any = parseSqlForCompletion(text, offset, driver);
+    expect(ast.suggestColumns.tables.map(t => t.identifierChain.map(id => id.name).join('.'))).toEqual(['s.employees']);
+    const star = parseSqlForCompletion(prefix + 'SELECT *, FROM s.employees;\n', prefix.length + 8, driver) as any;
+    const asterisk = star.locations.find(l => l.type === 'asterisk');
+    expect(asterisk.location.first_line).toBe(16);
+    expect(asterisk.tables.map(t => t.identifierChain.map(id => id.name).join('.'))).toEqual(['s.employees']);
+  });
+});
