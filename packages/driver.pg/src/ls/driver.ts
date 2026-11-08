@@ -18,6 +18,30 @@ types.setTypeParser((types as any).builtins.DATE || 1082, rawValue);
 export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> implements IConnectionDriver {
   public readonly supportsCompletionCatalog = true;
   queries = Queries;
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+  private guardedClients = new WeakSet<PoolClient>();
+  private originalQueries = new WeakMap<PoolClient, PoolClient['query']>();
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+  }
+
+  private guardClient(client: PoolClient): PoolClient {
+    if (this.guardedClients.has(client)) return client;
+    const original = client.query;
+    this.originalQueries.set(client, original);
+    const guard = (sql: string | { text?: string }) => {
+      if (typeof sql === 'string') this.sqlExecutionGuard(sql);
+      else if (sql && typeof sql.text === 'string') this.sqlExecutionGuard(sql.text);
+      else throw new Error('Cannot validate PostgreSQL query without SQL text.');
+    };
+    client.query = function (...args: Parameters<PoolClient['query']>) {
+      guard(args[0]);
+      return original.apply(client, args);
+    } as PoolClient['query'];
+    this.guardedClients.add(client);
+    return client;
+  }
   public async open() {
     if (this.connection) {
       return this.connection;
@@ -112,7 +136,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
 
       const pool = new Pool(poolConfig);
       const initSql = this.credentials.connectionInitSql;
-      const cli = await pool.connect();
+      const cli = this.guardClient(await pool.connect());
       if (initSql && initSql.trim()) {
         try {
           await cli.query(initSql);
@@ -123,9 +147,14 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
         }
         // Re-run on every additional pooled connection (each is a separate session).
         pool.on('connect', client => {
-          client.query(initSql).catch(initError => {
+          const reportInitError = (initError: Error) => {
             this.log.error(`Connection init SQL failed on new pool connection: ${(initError && initError.message) || initError}`);
-          });
+          };
+          try {
+            this.guardClient(client).query(initSql).catch(reportInitError);
+          } catch (initError) {
+            reportInitError(initError);
+          }
         });
       }
       cli.release();
@@ -178,6 +207,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
         total = Number(countResult.rows[0] && countResult.rows[0].SQLTOOLS_TOTAL);
         if (!isFinite(total)) throw new Error('Count query returned a non-numeric value.');
       } catch (countError) {
+        if (countError && countError.name === 'SqlExecutionPolicyError') throw countError;
         // COUNT wrapper not accepted (e.g. statement contains constructs that can't be
         // subselected) - advertise one extra page when more rows exist so the "next"
         // control stays enabled instead of failing the whole query.
@@ -222,6 +252,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
   }) as any;
 
   public query: (typeof AbstractDriver)['prototype']['query'] = (query, opt = {}) => {
+    this.sqlExecutionGuard(query.toString());
     const messages = [];
     let cli : PoolClient;
     const { requestId } = opt;
@@ -231,7 +262,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
 
     return this.open()
       .then(async (pool) => {
-        cli = await pool.connect();
+        cli = this.guardClient(await pool.connect());
         cli.on('notice', notice => {
           // Trigger debug output (RAISE NOTICE 'NEW JSON ...' / 'EXISTING JSON ...') is noise in the console.
           if (/^\s*(?:NEW|EXISTING) JSON\b/i.test(notice.message || '')) return;
@@ -353,7 +384,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
   public async applyEdits(edits: NSDatabase.IResultEdit[], _opt: IQueryOptions): Promise<NSDatabase.IResultEditResponse> {
     if (!edits.length) return { success: true };
     const quoteIdentifier = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
-    const client = await (await this.open()).connect();
+    let client: PoolClient;
     let failedIndex = 0;
     let transactionStarted = false;
     try {
@@ -370,6 +401,14 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
         const relation = [table.schema, table.label].filter(Boolean).map(quoteIdentifier).join('.');
         return { relation, whereClause, setClause, matchValues, values: [...matchValues, ...changeColumns.map(column => changes[column])] };
       });
+      for (const { relation, whereClause, setClause } of prepared) {
+        this.sqlExecutionGuard(`SELECT COUNT(*) AS "matching_count" FROM ${relation} WHERE ${whereClause}`);
+        this.sqlExecutionGuard(`UPDATE ${relation} SET ${setClause} WHERE ${whereClause}`);
+      }
+      this.sqlExecutionGuard('BEGIN');
+      this.sqlExecutionGuard('COMMIT');
+      this.sqlExecutionGuard('ROLLBACK');
+      client = this.guardClient(await (await this.open()).connect());
       await client.query('BEGIN');
       transactionStarted = true;
       for (let index = 0; index < prepared.length; index++) {
@@ -390,10 +429,13 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
       await client.query('COMMIT');
       return { success: true };
     } catch (error) {
-      if (transactionStarted) await client.query('ROLLBACK').catch(() => undefined);
+      if (transactionStarted) {
+        const rollback = this.originalQueries.get(client);
+        await rollback.call(client, 'ROLLBACK').catch(() => undefined);
+      }
       return { success: false, failedIndex, error: error.message || String(error) };
     } finally {
-      client.release();
+      if (client) client.release();
     }
   }
 
@@ -436,7 +478,7 @@ export default class PostgreSQL extends AbstractDriver<Pool, PoolConfig> impleme
 
   public async testConnection() {
     const pool = await this.open()
-    const cli = await pool.connect();
+    const cli = this.guardClient(await pool.connect());
     await cli.query('SELECT 1');
     cli.release();
   }

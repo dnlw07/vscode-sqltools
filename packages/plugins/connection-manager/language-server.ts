@@ -36,7 +36,7 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
     return <Connection | null>(activeConnections[id] || null);
   }
 
-  private runCommandHandler: RequestHandler<typeof RunCommandRequest> = async ({ conn, args, command }) => {
+  private runCommandHandler: RequestHandler<typeof RunCommandRequest> = async ({ conn, args, command, errorHandling }) => {
     try {
       const c = await this.getConnectionInstance(conn);
       if (!c) throw 'Connection not found';
@@ -47,7 +47,7 @@ export default class ConnectionManagerPlugin implements ILanguageServerPlugin {
       }
       return results;
     } catch (e) {
-      this.server.notifyError('Execute query error', e);
+      if (errorHandling !== 'client') this.server.notifyError('Execute query error', e);
       throw e;
     }
   };

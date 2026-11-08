@@ -8,6 +8,7 @@ import { EXT_CONFIG_NAMESPACE, EXT_NAMESPACE } from '@sqltools/util/constants';
 import { default as logger, createLogger, formatConnectionMessage } from '@sqltools/log/src';
 import { getDataPath, SESSION_FILES_DIRNAME } from '@sqltools/util/path';
 import { extractConnName, getQueryParameters, extractCommentVariables } from '@sqltools/util/query';
+import { assertSqlAllowed, SqlExecutionBlockedError } from '@sqltools/util/sql-execution-policy';
 import { getQueryBlockAtOffset, getQueryBlockConnectionName, parseQueryBlocks, QueryBlock } from '@sqltools/util/query/blocks';
 import { isEmpty } from '@sqltools/util/validation';
 import Context from '@sqltools/vscode/context';
@@ -131,25 +132,29 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   }
 
   private ext_showRecords = async (node?: SidebarItem<NSDatabase.ITable> | NSDatabase.ITable, opt: IQueryOptions & { page?: number, pageSize?: number } = {}) => {
+    let view = this.resultsWebview.getIfExists(opt.requestId);
     try {
       const table = await this._getTable(node);
       const conn = await this.explorer.getActive()
-      const view = await this._openResultsWebview(conn && conn.id, opt.requestId);
-      const payload = await this._runConnectionCommandWithArgs('showRecords', table, { ...opt, requestId: view.requestId });
+      view = await this._openResultsWebview(conn && conn.id, opt.requestId);
+      const payload = await this._runConnectionCommandWithArgs('showRecords', [table, { ...opt, requestId: view.requestId }], 'client');
       this.updateViewResults(view, payload, conn?.name);
     } catch (e) {
+      view?.sendMessage('SET_STATE', { loading: false });
       this.errorHandler('Error while showing table records', e);
     }
   }
 
   private ext_describeTable = async (node?: SidebarItem<NSDatabase.ITable> | NSDatabase.ITable) => {
+    let view: ReturnType<ResultsWebviewManager['get']>;
     try {
       const table = await this._getTable(node);
       const conn = await this.explorer.getActive()
-      const view = await this._openResultsWebview(conn && conn.id, undefined);
-      const payload = await this._runConnectionCommandWithArgs('describeTable', table, { requestId: view.requestId });
+      view = await this._openResultsWebview(conn && conn.id, undefined);
+      const payload = await this._runConnectionCommandWithArgs('describeTable', [table, { requestId: view.requestId }], 'client');
       this.updateViewResults(view, payload, conn?.name);
     } catch (e) {
+      view?.sendMessage('SET_STATE', { loading: false });
       this.errorHandler('Error while describing table records', e);
     }
   }
@@ -348,6 +353,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
 
   private ext_executeQuery = async (query?: string, { connNameOrId, connId, ...opt }: IQueryOptions = {}) => {
     let openingResultsScreen = false;
+    let view = this.resultsWebview.getIfExists(opt.requestId);
     try {
       const queryWasProvided = typeof query === 'string';
       const editor = window.activeTextEditor;
@@ -380,6 +386,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
         throw new Error('No active connection is available to execute the query.');
       }
       query = await this.replaceParams(query, conn);
+      assertSqlAllowed(query, Config.get('blockedSqlPatterns', []), conn.driver);
 
       const connectionId = getConnectionId(conn);
       if (!connectionId) {
@@ -389,12 +396,13 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
       const hasConcurrentQuery = this.queryExecutionTracker.start(connectionId);
       try {
         openingResultsScreen = true;
-        const view = await this._openResultsWebview(connectionId, opt.requestId, hasConcurrentQuery);
+        view = await this._openResultsWebview(connectionId, opt.requestId, hasConcurrentQuery);
         openingResultsScreen = false;
         const payload = await this.client.sendRequest(RunCommandRequest, {
           conn,
           command: 'query',
           args: [query, { ...opt, requestId: view.requestId }],
+          errorHandling: 'client',
         });
         const estimateNotification = Array.isArray(payload)
           ? payload.flatMap(result => result.messages || [])
@@ -410,6 +418,12 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
         this.queryExecutionTracker.finish(connectionId);
       }
     } catch (e) {
+      view?.sendMessage('SET_STATE', { loading: false });
+      if (e instanceof SqlExecutionBlockedError) {
+        log.warn(e.message);
+        window.showWarningMessage(e.message);
+        return;
+      }
       this.errorHandler(openingResultsScreen ? 'Error opening results screen.' : 'Error fetching records.', e);
     }
   }
@@ -433,7 +447,7 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
   }
 
   private ext_applyResultEdits = async (edits: NSDatabase.IResultEdit[], opt: IQueryOptions = {}) => {
-    return this._runConnectionCommandWithArgs('applyEdits', edits, opt);
+    return this._runConnectionCommandWithArgs('applyEdits', [edits, opt]);
   }
 
   private ext_showOutputChannel = async () => logger.show();
@@ -717,8 +731,8 @@ export class ConnectionManagerPlugin implements IExtensionPlugin {
     return connections.find((c) => getConnectionId(c) === sel);
   }
 
-  private async _runConnectionCommandWithArgs(command: string, ...args: any[]) {
-    return this.client.sendRequest(RunCommandRequest, { conn: await this.explorer.getActive(), command, args });
+  private async _runConnectionCommandWithArgs(command: string, args: any[], errorHandling?: 'client') {
+    return this.client.sendRequest(RunCommandRequest, { conn: await this.explorer.getActive(), command, args, errorHandling });
   }
 
   private async _askForPassword(c: IConnection): Promise<string | null> {

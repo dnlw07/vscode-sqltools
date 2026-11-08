@@ -13,7 +13,7 @@ const initialState: ResultsScreenState = {
   activeTab: 0,
 };
 
-const reducer: React.Reducer<ResultsScreenState, ResultsReducerAction> = (
+export const reducer: React.Reducer<ResultsScreenState, ResultsReducerAction> = (
   state,
   action
 ) => {
@@ -26,6 +26,7 @@ const reducer: React.Reducer<ResultsScreenState, ResultsReducerAction> = (
 
   switch (actionType) {
     case UIAction.SET_STATE:
+      return mutate(payload);
     case UIAction.RESPONSE_RESULTS:
       return mutate({
         activeTab: 0,

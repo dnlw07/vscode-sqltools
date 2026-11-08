@@ -16,6 +16,7 @@ const path_1 = __importDefault(require("path"));
 const crypto_1 = require("crypto");
 const path_2 = require("@sqltools/util/path");
 const completion_matching_1 = require("./completion-matching");
+const sql_execution_policy_1 = require("@sqltools/util/sql-execution-policy");
 const log = (0, src_1.createLogger)('conn');
 class Connection {
     credentials;
@@ -44,6 +45,9 @@ class Connection {
             throw new driver_not_installed_1.default(credentials.driver);
         }
         const driver = new DriverClass(this.credentials, getWorkspaceFolders);
+        if (driver.setSqlExecutionGuard) {
+            driver.setSqlExecutionGuard(sql => this.assertSqlAllowed(sql));
+        }
         this.conn = new Proxy(driver, {
             get: (target, property) => {
                 const value = Reflect.get(target, property, target);
@@ -59,10 +63,20 @@ class Connection {
         e = (0, ls_decorate_exception_1.default)(e, { conn: this.credentials });
         return Promise.reject(e);
     };
+    assertSqlAllowed(sql) {
+        const patterns = config_manager_1.default.blockedSqlPatterns;
+        (0, sql_execution_policy_1.assertSqlAllowed)(sql, patterns === undefined ? [] : patterns, this.credentials.driver);
+    }
     needsPassword() {
         return this.conn.credentials.askForPassword;
     }
     async connect() {
+        if (this.credentials.connectionInitSql) {
+            this.assertSqlAllowed(this.credentials.connectionInitSql);
+        }
+        else {
+            this.assertSqlAllowed('');
+        }
         if (!this.connected && this.conn.checkDependencies) {
             await this.conn.checkDependencies();
         }
@@ -123,7 +137,8 @@ class Connection {
         }
         return [records];
     }
-    query(query, opt = {}) {
+    async query(query, opt = {}) {
+        this.assertSqlAllowed(query);
         return (0, src_1.withConnectionName)(this.getName(), () => this.conn.query(query, opt)
             .catch(this.decorateException)
             .catch((e) => {

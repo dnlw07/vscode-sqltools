@@ -11,6 +11,11 @@ import keywordsCompletion from './keywords';
 const SQLite3Version = '5.1.7';
 
 export default class SQLite extends AbstractDriver<SQLiteLib.Database, any> implements IConnectionDriver {
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+  }
 
   public readonly deps: typeof AbstractDriver.prototype['deps'] = [{
     type: AbstractDriver.CONSTANTS.DEPENDENCY_PACKAGE,
@@ -64,6 +69,7 @@ export default class SQLite extends AbstractDriver<SQLiteLib.Database, any> impl
   }
 
   private runSingleQuery(db: SQLiteLib.Database, query: string) {
+    this.sqlExecutionGuard(query);
     return new Promise<any[]>((resolve, reject) => {
       db.all(query,(err, rows) => {
         if (err) return reject(err);
@@ -73,6 +79,7 @@ export default class SQLite extends AbstractDriver<SQLiteLib.Database, any> impl
   }
 
   public query: (typeof AbstractDriver)['prototype']['query'] = async (query, opt = {}) => {
+    this.sqlExecutionGuard(query.toString());
     const db = await this.open();
     const { requestId } = opt;
     const queries = queryParse(query.toString()).filter(Boolean);

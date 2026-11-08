@@ -9,6 +9,11 @@ import reservedWordsCompletion from './reserved-words';
 
 export default class MSSQL extends AbstractDriver<MSSQLLib.ConnectionPool, any> implements IConnectionDriver {
   queries = Queries;
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+  }
 
   private retryCount = 0;
   private SYSTEM_DATABASES = ['master', 'model', 'msdb', 'tempdb']
@@ -108,11 +113,13 @@ export default class MSSQL extends AbstractDriver<MSSQLLib.ConnectionPool, any> 
   }
 
   public query: (typeof AbstractDriver)['prototype']['query'] = async (originalQuery, opt = {}) => {
+    this.sqlExecutionGuard(originalQuery.toString());
     const pool = await this.open();
     const { requestId } = opt;
     const request = pool.request();
     request.multiple = true;
     const query = originalQuery.toString().replace(/^[ \t]*GO;?[ \t]*$/gmi, '');
+    this.sqlExecutionGuard(query);
     const { recordsets = [], rowsAffected, error } = <IResult<any> & { error: any }>(await request.query(query).catch(error => Promise.resolve({ error, recordsets: [], rowsAffected: [] })));
     const queries = queryParse(query, 'mssql');
     return queries.map((q, i): NSDatabase.IResult => {

@@ -7,6 +7,11 @@ import generateId from '@sqltools/util/internal-id';
 
 export default class MySQLX extends AbstractDriver<any, any> implements IConnectionDriver {
   queries = Queries;
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+  }
   public async open() {
     if (this.connection) {
       return this.connection;
@@ -79,6 +84,7 @@ export default class MySQLX extends AbstractDriver<any, any> implements IConnect
   }
 
   private async runSingleQuery(query: string, session: any, opt: any = {}): Promise<NSDatabase.IResult> {
+    this.sqlExecutionGuard(query);
     try {
       const results: any[] = [];
       const messages: string[] = [];
@@ -124,6 +130,7 @@ export default class MySQLX extends AbstractDriver<any, any> implements IConnect
   }
 
   public query: (typeof AbstractDriver)['prototype']['query'] = async (query, opt = {}) => {
+    this.sqlExecutionGuard(query.toString());
     try {
       const session = await this.open().then(client => client.getSession());
       const queries = queryParse(query.toString());

@@ -10,6 +10,11 @@ import { signAwsIamToken, validateIamAuthOptions } from './aws-iam';
 
 export default class MySQLDefault extends AbstractDriver<MySQLLib.Pool, MySQLLib.PoolOptions> implements IConnectionDriver {
   queries = Queries;
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+  }
   public async open() {
     if (this.connection) {
       return this.connection;
@@ -113,6 +118,7 @@ export default class MySQLDefault extends AbstractDriver<MySQLLib.Pool, MySQLLib
   }
 
   public query: (typeof AbstractDriver)['prototype']['query'] = (query, opt = {}) => {
+    this.sqlExecutionGuard(query.toString());
     return this.open().then((conn): Promise<NSDatabase.IResult[]> => {
       const { requestId } = opt;
       return new Promise((resolve, reject) => {

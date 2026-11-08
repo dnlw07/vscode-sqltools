@@ -12,6 +12,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { getDataPath } from '@sqltools/util/path';
 import { matchesCompletionName } from './completion-matching';
+import { assertSqlAllowed } from '@sqltools/util/sql-execution-policy';
 
 const log = createLogger('conn');
 
@@ -44,6 +45,9 @@ export default class Connection {
     }
 
     const driver = new DriverClass(this.credentials, getWorkspaceFolders);
+    if (driver.setSqlExecutionGuard) {
+      driver.setSqlExecutionGuard(sql => this.assertSqlAllowed(sql));
+    }
     this.conn = new Proxy(driver, {
       get: (target, property) => {
         const value = Reflect.get(target, property, target);
@@ -60,11 +64,21 @@ export default class Connection {
     return Promise.reject(e);
   }
 
+  private assertSqlAllowed(sql: string) {
+    const patterns = ConfigRO.blockedSqlPatterns;
+    assertSqlAllowed(sql, patterns === undefined ? [] : patterns, this.credentials.driver);
+  }
+
   public needsPassword() {
     return this.conn.credentials.askForPassword;
   }
 
   public async connect() {
+    if (this.credentials.connectionInitSql) {
+      this.assertSqlAllowed(this.credentials.connectionInitSql);
+    } else {
+      this.assertSqlAllowed('');
+    }
     if (!this.connected && this.conn.checkDependencies) {
       await this.conn.checkDependencies();
     }
@@ -133,7 +147,8 @@ export default class Connection {
     return [records];
   }
 
-  public query(query: string, opt: IQueryOptions & { throwIfError?: boolean } = {}): Promise<NSDatabase.IResult[]> {
+  public async query(query: string, opt: IQueryOptions & { throwIfError?: boolean } = {}): Promise<NSDatabase.IResult[]> {
+    this.assertSqlAllowed(query);
     return withConnectionName(this.getName(), () => this.conn.query(query, opt)
         .catch(this.decorateException)
         .catch((e) => {

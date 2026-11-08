@@ -315,6 +315,8 @@ export interface IConnectionDriverConstructor {
 export interface IConnectionDriver {
   /** Opt into complete schema/table catalogs and unpaged, table-scoped column lookups using completionCatalog: true. */
   readonly supportsCompletionCatalog?: boolean;
+  /** Install a synchronous SQL policy supplied by the language server. */
+  setSqlExecutionGuard?(guard: (sql: string) => void): void;
   connection: any;
   credentials: IConnection<any>;
   open(): Promise<any>;
@@ -751,6 +753,8 @@ export interface ICSVExportOptions {
 }
 
 export interface ISettings {
+  /** Case-insensitive regular expressions blocking SQL execution. */
+  blockedSqlPatterns?: string[];
   /**
    * Disable new release notifications.
    * @default false

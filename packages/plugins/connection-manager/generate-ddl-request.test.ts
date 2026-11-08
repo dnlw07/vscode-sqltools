@@ -33,6 +33,7 @@ describe('typed GenerateTableDDL request', () => {
     (connectionStateCache.get as jest.Mock).mockResolvedValue({
       'ddl-selected': selected, 'previously-active': previous,
     });
+
     jest.clearAllMocks();
   });
 
@@ -56,5 +57,36 @@ describe('typed GenerateTableDDL request', () => {
     selected.generateTableDDL.mockRejectedValue(new Error('Generate DDL is not supported by this driver'));
     await expect(handler({ conn, table })).rejects.toThrow('not supported');
     expect(Handlers.QuerySuccess).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunCommandRequest error notification ownership', () => {
+  const plugin = new ConnectionManagerPlugin();
+  const handler = plugin['runCommandHandler'];
+  const notifyError = jest.fn();
+  const error = new Error('SQL execution blocked by pattern 1.');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Reflect.set(plugin, 'server', { notifyError });
+    (connectionStateCache.get as jest.Mock).mockResolvedValue({
+      'ddl-selected': {
+        query: jest.fn().mockRejectedValue(error),
+        showRecords: jest.fn().mockRejectedValue(error),
+        describeTable: jest.fn().mockRejectedValue(error),
+        applyEdits: jest.fn().mockRejectedValue(error),
+      },
+    });
+  });
+
+  it.each(['query', 'showRecords', 'describeTable'])('leaves %s errors to the client', async command => {
+    await expect(handler({ conn, args: [], command, errorHandling: 'client' })).rejects.toBe(error);
+    expect(notifyError).not.toHaveBeenCalled();
+  });
+
+  it('continues notifying for callers that do not handle errors', async () => {
+    await expect(handler({ conn, args: [], command: 'applyEdits' })).rejects.toBe(error);
+    expect(notifyError).toHaveBeenCalledTimes(1);
+    expect(notifyError).toHaveBeenCalledWith('Execute query error', error);
   });
 });

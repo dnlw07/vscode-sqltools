@@ -25,7 +25,7 @@ export const GetConnectionPasswordRequest = new RequestType<
   void
 >('connection/GetConnectionPasswordRequest');
 export const RunCommandRequest = new RequestType<
-  { conn: IConnection; command: string; args: any[] },
+  { conn: IConnection; command: string; args: any[]; errorHandling?: 'client' },
   NSDatabase.IResult[],
   Error,
   void

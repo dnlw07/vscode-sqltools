@@ -7,6 +7,18 @@ order: 10
 
 ## v0.28
 
+### v0.28.81 - (Nov 8, 2026)
+
+- Show a warning without opening a new results view when a submitted SQL script matches a blocked pattern.
+
+### v0.28.80 - (Nov 8, 2026)
+
+- Avoid duplicate error notifications and stop the results loading indicator when query execution fails.
+
+### v0.28.79 - (Nov 8, 2026)
+
+- Configure `sqltools.blockedSqlPatterns` to block matching SQL before execution. Supported updated drivers also check SQL they generate.
+
 ### v0.28.78 - (Oct 23, 2026)
 
 - Autocomplete no longer stops working in long scripts (around 15k+ characters before the cursor): the other statements are now collapsed to line breaks instead of long runs of spaces, which the parser could not handle.

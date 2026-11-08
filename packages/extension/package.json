@@ -2,7 +2,7 @@
     "name": "sqltools",
     "displayName": "SQLTools",
     "description": "Connecting users to many of the most commonly used databases. Welcome to database management done right.",
-    "version": "0.28.78",
+    "version": "0.28.81",
     "publisher": "mtxr",
     "license": "MIT",
     "preview": false,
@@ -584,6 +584,13 @@
                     "default": "\\$[\\d]+|\\$\\[([\\d\\w]+)\\]",
                     "description": "RegEx used to identify query parameters.",
                     "required": true
+                },
+                "sqltools.blockedSqlPatterns": {
+                    "type": "array",
+                    "scope": "window",
+                    "default": [],
+                    "items": { "type": "string" },
+                    "markdownDescription": "Case-insensitive JavaScript regular expressions that block matching SQL. Comments and string literals are ignored. Invalid expressions block execution. Updated supported drivers also check generated SQL; older or third-party drivers may not. This is not a substitute for database permissions."
                 },
                 "sqltools.connections": {
                     "type": "array",

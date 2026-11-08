@@ -4,6 +4,7 @@ import LSContext from './context';
 import { ContextValue, NSDatabase } from '@sqltools/types';
 import { withConnectionName } from '@sqltools/log/src';
 import fs from 'fs';
+import ConfigRO from '@sqltools/util/config-manager';
 
 jest.mock('./context', () => ({ __esModule: true, default: { drivers: new Map() } }));
 jest.mock('@sqltools/log/src', () => ({
@@ -23,6 +24,7 @@ describe('connection completion cache', () => {
   let connectionId = 0;
 
   beforeEach(async () => {
+    (ConfigRO as any).blockedSqlPatterns = [];
     await (Connection as any).persistenceQueue;
     if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
     (Connection as any).completionSnapshots.clear();
@@ -49,6 +51,46 @@ describe('connection completion cache', () => {
     await connection.describeTable({ label: 'TABLES' } as any, { requestId: 'test' } as any);
 
     expect(withConnectionName).toHaveBeenCalledWith('cache-test-connection', expect.any(Function));
+  });
+
+  it('blocks matching scripts before calling the driver', async () => {
+    driver.query = jest.fn(async () => []);
+    (ConfigRO as any).blockedSqlPatterns = ['drop\\s+table'];
+    await expect(connection.query("SELECT 1; -- note\nDROP TABLE prod.users;")).rejects.toThrow('SQL execution blocked');
+    expect(driver.query).not.toHaveBeenCalled();
+    await connection.query("SELECT 'DROP TABLE prod.users';");
+    expect(driver.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies changes and rejects invalid expressions before execution', async () => {
+    driver.query = jest.fn(async () => []);
+    (ConfigRO as any).blockedSqlPatterns = ['('];
+    await expect(connection.query('SELECT 1')).rejects.toThrow('Invalid SQL blocking pattern 1');
+    (ConfigRO as any).blockedSqlPatterns = [];
+    await connection.query('SELECT 1');
+    expect(driver.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks initialization SQL before testing a connection', async () => {
+    const credentials: any = { id: 'init', name: 'test', driver: 'cache-test', connectionInitSql: 'SELECT 1; DROP TABLE prod.users' };
+    const guarded = new Connection(credentials, jest.fn());
+    (ConfigRO as any).blockedSqlPatterns = ['drop\\s+table'];
+    await expect(guarded.connect()).rejects.toThrow('SQL execution blocked');
+    expect(driver.testConnection).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid non-array policy settings', async () => {
+    (ConfigRO as any).blockedSqlPatterns = null;
+    await expect(connection.query('SELECT 1')).rejects.toThrow('must be an array of strings');
+  });
+
+  it('passes drivers a guard that reads the latest policy', () => {
+    let guard: (sql: string) => void;
+    driver.setSqlExecutionGuard = (value: (sql: string) => void) => { guard = value; };
+    new Connection({ id: 'guard', name: 'test', driver: 'cache-test' } as any, jest.fn());
+    expect(() => guard('DROP TABLE prod.users')).not.toThrow();
+    (ConfigRO as any).blockedSqlPatterns = ['drop\\s+table'];
+    expect(() => guard('DROP TABLE prod.users')).toThrow('SQL execution blocked');
   });
 
   describe('table DDL driver delegation', () => {

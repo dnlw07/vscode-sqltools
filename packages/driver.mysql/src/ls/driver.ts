@@ -11,7 +11,13 @@ const toBool = (v: any) => v && (v.toString() === '1' || v.toString().toLowerCas
 
 export default class MySQL<O = any> extends AbstractDriver<any, O> implements IConnectionDriver {
   queries = Queries;
-  private driver: AbstractDriver<any, any>;
+  private driver: MySQLX | MySQLDefault;
+  private sqlExecutionGuard: (sql: string) => void = () => undefined;
+
+  public setSqlExecutionGuard(guard: (sql: string) => void) {
+    this.sqlExecutionGuard = guard;
+    this.driver.setSqlExecutionGuard(guard);
+  }
 
   constructor(public credentials: IConnection, getWorkSpaceFolders) {
     // move to diferent drivers
@@ -31,6 +37,7 @@ export default class MySQL<O = any> extends AbstractDriver<any, O> implements IC
   }
 
   public query: (typeof AbstractDriver)['prototype']['query'] = (query, opt = {}) => {
+    this.sqlExecutionGuard(query.toString());
     return this.driver.query(query, opt)
     .catch(err => {
       if (opt.throwIfError) {
